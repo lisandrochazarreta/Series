@@ -61,6 +61,7 @@ select,input[type=text]{font:inherit;color:var(--ink);background:var(--bg);borde
 .meter{position:relative;height:12px;border-radius:99px;background:#ffffff26;overflow:hidden}
 .meter i{position:absolute;left:0;top:0;bottom:0;width:0;border-radius:99px;background:var(--mcol,var(--ok));transition:width .25s}
 .meter-label{display:flex;justify-content:space-between;color:#ffffffcc;font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;font-weight:600}
+.trace{width:100%;height:44px;display:block}
 .live{height:6px;border-radius:99px;background:#ffffff1a;overflow:hidden}
 .live i{display:block;height:100%;width:0;background:#fff}
 .camhint{position:absolute;left:12px;right:12px;top:50%;transform:translateY(-50%);background:#000c;color:#fff;border-radius:12px;padding:10px 12px;font-size:.92rem;text-align:center}
@@ -156,6 +157,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
           <div class="hud-right"><span id="hudReps">0 reps</span><span id="hudVL">pérdida –</span></div>
         </div>
         <div class="hud-bottom">
+          <canvas id="trace" class="trace" aria-label="Altura del punto seguido en los últimos segundos"></canvas>
           <div class="meter-label"><span>Proximidad al fallo</span><span id="hudProx">0%</span></div>
           <div class="meter"><i id="hudMeter"></i></div>
           <div class="meter-label"><span>Velocidad vs. tu mejor rep</span><span id="hudLiveTxt">–</span></div>
@@ -171,6 +173,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
       <button class="btn" id="flipCam" type="button" hidden>Cámara frontal</button>
       <button class="btn" id="newSet" type="button">Terminar serie</button>
       <button class="btn" id="undoCam" type="button">Borrar última rep</button>
+      <button class="btn small" id="diagBtn" type="button">Descargar diagnóstico</button>
       <button class="btn" id="failSet" type="button">Esta serie fue al fallo</button>
     </div>
     <div class="row">
@@ -578,6 +581,7 @@ function frame(t){
     if(r.score<.55){ // probar con la plantilla original y en zona más grande
       const r2=search(g,w,h,tpl0,pt.x,pt.y,lost>3?60:R*2,3);if(r2.score>r.score)r=r2;
     }
+    diag.frames.push({t:+t.toFixed(3),x:pt.x,y:pt.y,s:+r.score.toFixed(2)});if(diag.frames.length>2400)diag.frames.shift();
     if(r.score<.5){
       lost++;vel={x:0,y:0};
       if(lost===15){$('camHint').hidden=false;$('camHint').textContent='Perdí el punto. Quedate quieto un segundo o tocá de nuevo el disco.';}
@@ -592,19 +596,34 @@ function frame(t){
   }
   const gm=geom(),sx=gm.x+pt.x/w*gm.w,sy=gm.y+pt.y/h*gm.h,bs=(2*HS+1)/w*gm.w;
   octx.strokeStyle=lost?'#f0605a':phaseUp?'#4cc285':'#ff7a3d';octx.lineWidth=3;octx.strokeRect(sx-bs/2,sy-bs/2,bs,bs);
+  drawTrace(t);
+}
+// Trayectoria de los últimos 6 s: blanco = altura del punto; verde = rep contada; gris = movimiento descartado
+function drawTrace(now){
+  const c=$('trace'),dpr=window.devicePixelRatio||1,W=c.clientWidth,Hc=c.clientHeight;if(!W)return;
+  if(c.width!==Math.round(W*dpr)){c.width=Math.round(W*dpr);c.height=Math.round(Hc*dpr);}
+  const x=c.getContext('2d');x.setTransform(dpr,0,0,dpr,0,0);x.clearRect(0,0,W,Hc);
+  const pts=buf.filter(s=>now-s.t<=6);if(pts.length<2)return;
+  let mn=Infinity,mx=-Infinity;pts.forEach(s=>{mn=Math.min(mn,s.e);mx=Math.max(mx,s.e)});
+  const span=Math.max(mx-mn,.08*(work.height||100));
+  const X=t=>W-(now-t)/6*W,Y=e=>Hc-3-(e-mn)/span*(Hc-6);
+  x.strokeStyle='#ffffffcc';x.lineWidth=2;x.beginPath();pts.forEach((s,i)=>i?x.lineTo(X(s.t),Y(s.e)):x.moveTo(X(s.t),Y(s.e)));x.stroke();
+  diag.events.filter(ev=>now-ev.t<=6).forEach(ev=>{x.fillStyle=ev.kind==='rep'||ev.kind==='recalibrado'?'#4cc285':'#94a0ad';x.beginPath();x.arc(X(ev.t),6,4,0,7);x.fill();});
 }
 
 /* Detector de reps por extremos con histéresis.
    Una rep cuenta solo si hay un punto bajo seguido de un punto alto (en la dirección del esfuerzo)
    con recorrido parecido al de las reps anteriores. La velocidad se mide entre el 10% y el 90% del recorrido. */
+const diag={frames:[],events:[]};
+function logEv(t,kind,why,d){diag.events.push({t:+t.toFixed(3),kind,why,d:+(d||0).toFixed(1)});if(diag.events.length>400)diag.events.shift();}
 let buf=[],sm=null,dir=0,ext=null,lastExt=null,dispHist=[],phaseUp=false;
-function resetDetector(){buf=[];sm=null;dir=0;ext=null;lastExt=null;dispHist=[];phaseUp=false;$('hudLive').style.width='0';$('hudLiveTxt').textContent='–';}
+function resetDetector(){pending=[];buf=[];sm=null;dir=0;ext=null;lastExt=null;dispHist=[];phaseUp=false;$('hudLive').style.width='0';$('hudLiveTxt').textContent='–';}
 const median=a=>{if(!a.length)return 0;const s=a.slice().sort((x,y)=>x-y);return s[s.length>>1]};
 function detect(t,yPix,h){
   sm=sm===null?yPix:sm+.5*(yPix-sm);
   const e=dirUp?-sm:sm; // crece en la dirección del esfuerzo
   buf.push({t,e,r:dirUp?-yPix:yPix}); // r: sin suavizar, para medir tiempos sin retrasowhile(buf.length&&t-buf[0].t>8)buf.shift();
-  const med=median(dispHist),H=Math.max(.035*h,.3*med);
+  const med=median(dispHist),H=Math.max(.03*h,.25*med);
   if(ext===null){ext={t,e};dir=1;return;}
   if(dir>0){
     if(e>ext.e)ext={t,e};
@@ -625,10 +644,12 @@ function detect(t,yPix,h){
     }
   }
 }
+let pending=[];
 function registerExt(type,p){
   if(type==='top'&&lastExt&&lastExt.type==='bottom'){
     const b=lastExt,d=p.e-b.e,med=median(dispHist),hh=work.height||1;
-    if(d>=.06*hh&&(!med||d>=.6*med)&&(!med||d<=1.6*med)){
+    if(d<.05*hh){logEv(p.t,'descartada','recorrido muy corto',d);}
+    else{
       // tiempos de cruce interpolados entre cuadros: con cámaras lentas (12–15 cuadros/s) evita errores grandes
       let t10=null,t90=null,prevS=null;const l10=b.e+.1*d,l90=b.e+.9*d;
       const cross=(a,c,l)=>a.t+(c.t-a.t)*((l-a.r)/((c.r-a.r)||1e-9));
@@ -636,11 +657,26 @@ function registerExt(type,p){
         if(t10===null&&s.r>=l10)t10=prevS&&prevS.r<l10?cross(prevS,s,l10):s.t;
         if(t10!==null&&t90===null&&s.r>=l90){t90=prevS&&prevS.r<l90?cross(prevS,s,l90):s.t;break}
         prevS=s;}
-      if(t10!==null&&t90!==null&&t90>t10){
-        const dur=t90-t10;
-        if(dur>.08&&dur<5){dispHist.push(d);if(dispHist.length>6)dispHist.shift();onRep(.8*d/dur,dur,d);}
+      const dur=t10!==null&&t90!==null?t90-t10:0;
+      if(!(dur>.08&&dur<5)){logEv(p.t,'descartada','tiempo inválido',d);}
+      else{
+        const c={speed:.8*d/dur,dur,d,t:p.t};
+        const fits=!med||(d>=.65*med&&d<=1.5*med);
+        if(fits){pending=[];dispHist.push(d);if(dispHist.length>6)dispHist.shift();logEv(p.t,'rep','',d);onRep(c.speed,c.dur,c.d);}
+        else{
+          pending.push(c);if(pending.length>3)pending.shift();
+          const [x,y]=pending.slice(-2);
+          // Dos movimientos seguidos parecidos entre sí pero distintos del recorrido aprendido:
+          // al principio de la serie significa que el primero no era una rep (sacar la barra, acomodarse).
+          if(pending.length>=2&&Math.abs(x.d-y.d)/Math.max(x.d,y.d)<.3&&reps.length<=2){
+            logEv(p.t,'recalibrado','recorrido nuevo',d);
+            dispHist=[x.d,y.d];pending=[];
+            reps=[];announced=Infinity;shown={rir:null,prox:0,upVotes:0};
+            onRep(x.speed,x.dur,x.d);onRep(y.speed,y.dur,y.d);
+          }else logEv(p.t,'descartada',d<med?'recorrido corto vs. tus reps':'recorrido largo vs. tus reps',d);
+        }
       }
-    }else if(!med&&d>=.06*hh){dispHist.push(d);} // primer movimiento grande: sirve para calibrar el recorrido
+    }
   }
   lastExt={type,...p};
 }
@@ -649,6 +685,15 @@ function registerExt(type,p){
 function renderH(){const h=store.get('cdf-hist',[]),tb=$('hist');tb.innerHTML='';
   if(!h.length){tb.innerHTML='<tr><td colspan="6" class="note">Todavía no hay series. Se guardan solas al terminar.</td></tr>';return;}
   h.slice().reverse().forEach(r=>{const tr=document.createElement('tr');[r.fecha,r.ej,r.peso?r.peso+' kg':'–',r.reps,'−'+r.vl+'%',r.rir].forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.appendChild(td)});tb.appendChild(tr);});}
+$('diagBtn').addEventListener('click',()=>{
+  const v=video,set=stream&&stream.getVideoTracks()[0]&&stream.getVideoTracks()[0].getSettings?stream.getVideoTracks()[0].getSettings():{};
+  const data={version:'diag-1',fecha:new Date().toISOString(),ua:navigator.userAgent,camara:{facing,mirror,ancho:v.videoWidth,alto:v.videoHeight,fps:set.frameRate||null},
+    ejercicio:ex(),esfuerzoHaciaArriba:dirUp,trabajo:{ancho:work.width,alto:work.height},reps:reps.map(r=>({v:+r.speed.toFixed(1),dur:+r.dur.toFixed(3),d:+(r.disp||0).toFixed(1)})),
+    eventos:diag.events,cuadros:diag.frames};
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(data)],{type:'application/json'}));a.download='diagnostico-cerca-del-fallo.json';document.body.appendChild(a);a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1000);
+  toast('Diagnóstico descargado. Mandámelo en el chat y lo reviso.');
+});
 $('exportCsv').addEventListener('click',()=>{
   const h=store.get('cdf-hist',[]);if(!h.length){toast('Todavía no hay series para exportar.');return;}
   const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
