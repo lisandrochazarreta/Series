@@ -92,6 +92,11 @@ select,input[type=text]{font:inherit;color:var(--ink);background:var(--bg);borde
 .restbar{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--raise);border-radius:10px;padding:8px 12px}
 .restbar .num{font-size:1.4rem}
 input[type=number]{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 8px;width:100%}
+.excat{grid-column:1/-1;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;font-weight:600;padding:4px 10px;border-radius:99px;background:var(--raise);border:1px solid var(--line);color:var(--ink)}
+.hudex{font-family:var(--body);font-weight:600;font-size:.8rem;background:#000a;border:1px solid #ffffff33;border-radius:99px;padding:2px 8px;align-self:flex-end}
+.hudex:empty{display:none}
+.week{display:flex;gap:6px;flex-wrap:wrap}
 .toast{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--raise);border:1px solid var(--line);color:var(--ink);padding:10px 14px;border-radius:12px;font-size:.9rem;max-width:calc(100% - 32px);z-index:5}
 table{width:100%;border-collapse:collapse;font-size:.86rem}
 th,td{text-align:left;padding:7px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
@@ -122,8 +127,10 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
         <option value="hipthrust">Hip thrust</option>
         <option value="prensa">Prensa</option>
         <option value="dominadas">Dominadas</option>
+        <option value="curl">Curl de bíceps</option>
         <option value="otro">Otro</option>
       </select></label>
+    <div class="excat"><span class="chip" id="exCat">Piernas · Sentadilla</span><span class="note" id="exAutoNote"></span></div>
     <label for="weight"><span class="label">Peso (kg)</span>
       <input type="number" id="weight" inputmode="decimal" min="0" step="0.5" placeholder="ej. 100"></label>
     <label for="alertAt"><span class="label">Avisarme cuando queden</span>
@@ -136,6 +143,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
     <label for="restSecs"><span class="label">Descanso entre series</span>
       <select id="restSecs"><option value="0">Sin temporizador</option><option value="60">1:00</option><option value="90">1:30</option><option value="120" selected>2:00</option><option value="180">3:00</option><option value="240">4:00</option></select></label>
     <div class="checks">
+      <label for="autoEx"><input type="checkbox" id="autoEx" checked> Detectar el ejercicio automáticamente</label>
       <label for="voice"><input type="checkbox" id="voice" checked> Avisos por voz</label>
       <label for="count"><input type="checkbox" id="count"> Contar reps en voz alta</label>
       <label for="tick"><input type="checkbox" id="tick"> Pitido suave en cada rep</label>
@@ -154,7 +162,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
       <div class="hud">
         <div class="hud-top">
           <div class="hud-left"><div class="label">Faltan para el fallo</div><div class="big" id="hudRir">–</div><div class="big-sub" id="hudSub">Esperando</div></div>
-          <div class="hud-right"><span id="hudReps">0 reps</span><span id="hudVL">pérdida –</span></div>
+          <div class="hud-right"><span class="hudex" id="hudEx"></span><span id="hudReps">0 reps</span><span id="hudVL">pérdida –</span></div>
         </div>
         <div class="hud-bottom">
           <canvas id="trace" class="trace" aria-label="Altura del punto seguido en los últimos segundos"></canvas>
@@ -227,13 +235,15 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
         <div class="row"><button class="btn small" id="restPlus" type="button">+30 s</button><button class="btn small" id="restSkip" type="button">Saltar</button></div></div>
     </div>
     <div class="row" style="justify-content:space-between"><h2>Series</h2><button class="btn small" id="exportCsv" type="button">Exportar CSV</button></div>
-    <div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Ejercicio</th><th>Peso</th><th>Reps</th><th>Pérdida</th><th>Faltaban</th></tr></thead><tbody id="hist"></tbody></table></div>
+    <div class="week" id="week"></div>
+    <div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Ejercicio</th><th>Grupo</th><th>Peso</th><th>Reps</th><th>Pérdida</th><th>Faltaban</th></tr></thead><tbody id="hist"></tbody></table></div>
   </section>
 
   <details>
     <summary>Cómo calcula cuánto falta</summary>
     <p class="note">Cada rep se compara con la más rápida de las primeras tres. Cerca del fallo la barra va cada vez más lenta; la app combina cuánto perdiste hasta ahora con la tendencia de las últimas reps para proyectar en qué rep la velocidad cae al nivel de fallo. Ese nivel depende del ejercicio (en press banca se pierde más velocidad antes de fallar que en sentadilla).</p>
     <p class="note">Para afinarlo a vos: hacé una serie hasta el fallo real y tocá "Esta serie fue al fallo". La app guarda tu pérdida de velocidad en la última rep y la usa para ese ejercicio.</p>
+    <p class="note">Detección del ejercicio: la app reconoce las articulaciones de tu cuerpo (hombros, codos, cadera, rodillas) y mira cuáles se mueven en cada rep y en qué posición está tu torso. Con eso distingue, por ejemplo, una sentadilla (rodillas y cadera, barra a la altura de los hombros) de un peso muerto (cadera, brazos colgando). Necesita verte el cuerpo entero de costado; si no estás seguro, elegí el ejercicio a mano y la app no lo cambia en esa serie.</p>
     <p class="note">Si el celular está en silencio puede que no escuches la voz ni los pitidos.</p>
   </details>
 </div>
@@ -247,7 +257,15 @@ const store={get(k,d){try{const v=localStorage.getItem(k);return v===null?d:JSON
 
 /* ---------- Configuración ---------- */
 // Pérdida de velocidad típica en la última rep posible (al fallo), por ejercicio. Se reemplaza con la calibración propia.
-const VLFAIL_DEFAULT={sentadilla:.62,banca:.7,militar:.66,pesomuerto:.56,remo:.66,hipthrust:.62,prensa:.62,dominadas:.6,otro:.66};
+const VLFAIL_DEFAULT={sentadilla:.62,banca:.7,militar:.66,pesomuerto:.56,remo:.66,hipthrust:.62,prensa:.62,dominadas:.6,curl:.6,otro:.66};
+// Categoría de cada ejercicio: grupo muscular principal y patrón de movimiento
+const EX_INFO={
+  sentadilla:{grupo:'Piernas',patron:'Sentadilla'},prensa:{grupo:'Piernas',patron:'Empuje de piernas'},
+  pesomuerto:{grupo:'Cadena posterior',patron:'Bisagra de cadera'},hipthrust:{grupo:'Cadena posterior',patron:'Extensión de cadera'},
+  banca:{grupo:'Pecho',patron:'Empuje horizontal'},militar:{grupo:'Hombros',patron:'Empuje vertical'},
+  remo:{grupo:'Espalda',patron:'Tracción horizontal'},dominadas:{grupo:'Espalda',patron:'Tracción vertical'},
+  curl:{grupo:'Brazos',patron:'Flexión de codo'},otro:{grupo:'Otro',patron:'Sin categoría'}};
+const exName=k=>{const o=[...$('exercise').options].find(o=>o.value===k);return o?o.text:k};
 let cal=store.get('cdf-cal',{});
 let dirUp=true,mode='cam';
 const ex=()=>$('exercise').value;
@@ -257,11 +275,11 @@ $('exercise').value=store.get('cdf-ex','sentadilla');
 // Ajustes que se recuerdan entre sesiones; dirección y último peso, por ejercicio
 const prefs=store.get('cdf-prefs',{});
 ['alertAt','restSecs'].forEach(id=>{if(prefs[id]!==undefined)$(id).value=prefs[id];$(id).addEventListener('change',()=>{prefs[id]=$(id).value;store.set('cdf-prefs',prefs)})});
-['voice','count','tick'].forEach(id=>{if(prefs[id]!==undefined)$(id).checked=prefs[id];$(id).addEventListener('change',()=>{prefs[id]=$(id).checked;store.set('cdf-prefs',prefs)})});
+['voice','count','tick','autoEx'].forEach(id=>{if(prefs[id]!==undefined)$(id).checked=prefs[id];$(id).addEventListener('change',()=>{prefs[id]=$(id).checked;store.set('cdf-prefs',prefs)})});
 let dirs=store.get('cdf-dir',{dominadas:true}),weights=store.get('cdf-w',{});
 function loadExercisePrefs(){setDir(dirs[ex()]!==false,true);$('weight').value=weights[ex()]??'';}
 $('weight').addEventListener('change',()=>{weights[ex()]=$('weight').value;store.set('cdf-w',weights)});
-$('exercise').addEventListener('change',()=>{store.set('cdf-ex',ex());calInfo();loadExercisePrefs();updateShown(analyze(),true);render();});
+$('exercise').addEventListener('change',()=>{store.set('cdf-ex',ex());manualLock=true;exAuto=false;calInfo();loadExercisePrefs();updateShown(analyze(),true);render();setExChip();});
 function setDir(up,silent){dirUp=up;$('dirUp').setAttribute('aria-pressed',up);$('dirDown').setAttribute('aria-pressed',!up);if(!silent){dirs[ex()]=up;store.set('cdf-dir',dirs);}resetDetector();}
 $('dirUp').addEventListener('click',()=>setDir(true));$('dirDown').addEventListener('click',()=>setDir(false));
 
@@ -381,6 +399,8 @@ function showBanner(text,col,ms){const b=$('banner');b.textContent=text;b.style.
 
 function onRep(speed,dur,disp){
   reps.push({speed,dur,disp});lastRepAt=performance.now();
+  if(reps.length===1)setPoseT=poseBuf.length?poseBuf[poseBuf.length-1].t:null;
+  maybeClassify();
   const a=analyze();updateShown(a,false);a.rir=shown.rir;render();
   setLive(speed/a.ref,true);
   const alertAt=+$('alertAt').value;
@@ -403,7 +423,7 @@ function endSet(reason){
   if(a.n>=3){
     const h=store.get('cdf-hist',[]);
     const rir=shown.rir;
-    const row={fecha:new Date().toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),ej:$('exercise').selectedOptions[0].text,peso:$('weight').value||'',reps:a.n,vl:Math.round(a.vlLast*100),rir:rirText(rir)};
+    const row={fecha:new Date().toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),ej:$('exercise').selectedOptions[0].text,grupo:EX_INFO[ex()].grupo,patron:EX_INFO[ex()].patron,auto:exAuto,ts:Date.now(),peso:$('weight').value||'',reps:a.n,vl:Math.round(a.vlLast*100),rir:rirText(rir)};
     h.push(row);store.set('cdf-hist',h.slice(-200));renderH();
     lastSet={ex:ex(),vlLast:a.vlLast};
     showSummary(a,rir,row);
@@ -411,6 +431,7 @@ function endSet(reason){
     startRest();
   }else if(a.n){lastSet={ex:ex(),vlLast:a.vlLast};}
   reps=[];announced=Infinity;shown={rir:null,prox:0,upVotes:0};$('banner').hidden=true;setLive(null);render();
+  setPoseT=null;lastGuess=null;guessVotes=0;manualLock=false;
   $('holdHint').textContent='Rep 1 · soltá al bloquear';
 }
 setInterval(()=>{if(reps.length&&performance.now()-lastRepAt>35000)endSet('Serie guardada');},2000);
@@ -427,7 +448,7 @@ function showSummary(a,rir,row){
   else{col='--warn';tip=w?`Justo en la zona que buscabas. Repetí ${fmtKg(w)} kg.`:'Justo en la zona que buscabas. Repetí el peso.';}
   $('summary').style.setProperty('--scol',`var(${col})`);
   $('sumTitle').textContent=`Última serie · ${row.ej}${row.peso?' · '+row.peso+' kg':''}`;
-  $('sumWhen').textContent=row.fecha;
+  $('sumWhen').textContent=`${row.grupo} · ${row.patron}${row.auto?' (detectado)':''} · ${row.fecha}`;
   $('sumReps').textContent=a.n;$('sumRir').textContent=rir===null?'–':'~'+rirText(rir);
   $('sumVL').textContent='−'+Math.round(a.vlLast*100)+'%';$('sumRom').textContent=rom;$('sumRomBox').hidden=rom==='–';
   $('sumTip').textContent=tip;$('summary').hidden=false;
@@ -513,9 +534,106 @@ async function openCamera(){
     $('startCam').hidden=true;pt=null;tpl=null;tpl0=null;lost=0;resetDetector();
     $('camHint').hidden=false;$('camHint').textContent=mirror?'Cámara frontal: apoyá el celular de costado a la barra, con buena luz, y tocá el centro del disco.':'Tocá el centro del disco o el extremo de la barra.';
     if(!running){running=true;schedule();}
+    initPose();setExChip();
   }catch(e){$('camHint').hidden=false;$('camHint').textContent='No pude abrir la cámara. Revisá que el navegador tenga permiso para usarla.';}
 }
 $('startCam').addEventListener('click',()=>{unlockAudio();openCamera();});
+$('autoEx').addEventListener('change',()=>{if($('autoEx').checked&&running)initPose();setExChip();});
+
+/* Detección del ejercicio con MediaPipe Pose (corre en el celular, no envía imágenes a ningún lado) */
+const MP_BASE='https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35';
+const POSE_MODEL='https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
+let poser=null,poseState='off',poseBuf=[],lastPoseMs=0,lastLm=null,setPoseT=null,lastGuess=null,guessVotes=0,manualLock=false,exAuto=false;
+async function initPose(){
+  if(poser||poseState==='loading'||!$('autoEx').checked)return;
+  poseState='loading';setExChip();
+  try{
+    const {FilesetResolver,PoseLandmarker}=await import(MP_BASE+'/vision_bundle.mjs');
+    const files=await FilesetResolver.forVisionTasks(MP_BASE+'/wasm');
+    const mk=d=>PoseLandmarker.createFromOptions(files,{baseOptions:{modelAssetPath:POSE_MODEL,delegate:d},runningMode:'VIDEO',numPoses:1,minPoseDetectionConfidence:.5,minPosePresenceConfidence:.5,minTrackingConfidence:.5});
+    try{poser=await mk('GPU')}catch(_){poser=await mk('CPU')}
+    poseState='ready';
+  }catch(e){poseState='error';console.warn('pose',e);}
+  setExChip();
+}
+function setExChip(){
+  const k=ex(),info=EX_INFO[k]||EX_INFO.otro;
+  $('exCat').textContent=`${info.grupo} · ${info.patron}`;
+  let note='';
+  if($('autoEx').checked){
+    if(manualLock)note='Elegido a mano para esta serie';
+    else if(poseState==='loading')note='Cargando el detector de ejercicio…';
+    else if(poseState==='error')note='No pude cargar el detector: elegí el ejercicio a mano';
+    else if(exAuto)note='Detectado automáticamente';
+    else if(poseState==='ready')note='Lo detecto en las primeras 2–3 reps';
+  }
+  $('exAutoNote').textContent=note;
+  $('hudEx').textContent=running?`${exName(k)} · ${info.grupo}${exAuto?' · auto':''}`:'';
+}
+function samplePose(t){
+  if(!poser||!$('autoEx').checked)return;
+  const nowMs=performance.now();if(nowMs-lastPoseMs<110)return;lastPoseMs=nowMs;
+  try{
+    const r=poser.detectForVideo(video,nowMs),lm=r&&r.landmarks&&r.landmarks[0];
+    if(lm){lastLm=lm;poseBuf.push({t,lm:lm.map(p=>({x:p.x,y:p.y,v:p.visibility===undefined?1:p.visibility}))});while(poseBuf.length&&t-poseBuf[0].t>25)poseBuf.shift();}
+    else lastLm=null;
+  }catch(_){}
+}
+const BONES=[[11,13],[13,15],[12,14],[14,16],[11,12],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]];
+function drawSkeleton(){
+  if(!lastLm||!$('autoEx').checked)return;const g=geom();
+  octx.strokeStyle='#ffffff80';octx.lineWidth=2;octx.beginPath();
+  BONES.forEach(([a,b])=>{const A=lastLm[a],B=lastLm[b];if((A.visibility??1)<.4||(B.visibility??1)<.4)return;octx.moveTo(g.x+A.x*g.w,g.y+A.y*g.h);octx.lineTo(g.x+B.x*g.w,g.y+B.y*g.h);});
+  octx.stroke();
+}
+function maybeClassify(){
+  if(mode!=='cam'||!$('autoEx').checked||manualLock||reps.length<2||setPoseT===null||!video.videoHeight)return;
+  const S=poseBuf.filter(s=>s.t>=setPoseT-4);
+  const gs=classifyPose(S,video.videoWidth/video.videoHeight);
+  if(!gs)return;
+  if(gs.key===lastGuess)guessVotes++;else{lastGuess=gs.key;guessVotes=1;}
+  if(gs.key===ex()){if(!exAuto){exAuto=true;setExChip();}return;}
+  if(guessVotes>=2||(gs.conf>=.8&&reps.length>=3)){
+    $('exercise').value=gs.key;store.set('cdf-ex',gs.key);exAuto=true;
+    $('weight').value=weights[gs.key]??'';calInfo();updateShown(analyze(),true);render();setExChip();
+    toast(`Detecté ${exName(gs.key)} · ${EX_INFO[gs.key].grupo}. Si no es, elegilo a mano.`);
+  }
+}
+/* Clasificador por reglas a partir de los ángulos de las articulaciones (vista de costado).
+   S: muestras {t, lm:[33 puntos {x,y,v} normalizados]}; aspect: ancho/alto del video. */
+function classifyPose(S,aspect){
+  if(!S||S.length<12)return null;
+  const sideVis=ids=>S.reduce((a,s)=>a+ids.reduce((b,i)=>b+s.lm[i].v,0),0);
+  const L=sideVis([11,13,15,23,25,27]),Rv=sideVis([12,14,16,24,26,28]);
+  const sd=L>=Rv?{sh:11,el:13,wr:15,hp:23,kn:25,an:27}:{sh:12,el:14,wr:16,hp:24,kn:26,an:28};
+  const vis=Math.max(L,Rv)/(S.length*6);if(vis<.45)return null;
+  const P=(lm,i)=>({x:lm[i].x*aspect,y:lm[i].y});
+  const ang=(a,b,c)=>{const ux=a.x-b.x,uy=a.y-b.y,vx=c.x-b.x,vy=c.y-b.y,d=Math.hypot(ux,uy)*Math.hypot(vx,vy)||1e-9;return Math.acos(Math.max(-1,Math.min(1,(ux*vx+uy*vy)/d)))*57.2958};
+  const q=(arr,p)=>{const v=arr.slice().sort((a,b)=>a-b);return v[Math.round(p*(v.length-1))]};
+  const tls=S.map(s=>{const a=P(s.lm,sd.sh),b=P(s.lm,sd.hp);return Math.hypot(a.x-b.x,a.y-b.y)});const TL=q(tls,.5)||1e-6;
+  const F=S.map(s=>{const lm=s.lm,sh=P(lm,sd.sh),el=P(lm,sd.el),wr=P(lm,sd.wr),hp=P(lm,sd.hp),kn=P(lm,sd.kn),an=P(lm,sd.an),no=P(lm,0);
+    return{torso:Math.atan2(Math.abs(sh.x-hp.x),Math.abs(hp.y-sh.y))*57.2958,knee:ang(hp,kn,an),hip:ang(sh,hp,kn),elbow:ang(sh,el,wr),
+      thigh:Math.atan2(Math.abs(kn.x-hp.x),kn.y-hp.y)*57.2958,wrSh:(sh.y-wr.y)/TL,wrHead:(no.y-wr.y)/TL,hipY:hp.y/TL,shY:sh.y/TL,anHip:(hp.y-an.y)/TL}});
+  const col=k=>F.map(f=>f[k]),R=k=>q(col(k),.9)-q(col(k),.1),M=k=>q(col(k),.5),frac=(k,th)=>col(k).filter(v=>v>th).length/F.length;
+  const f={torso:M('torso'),torsoMin:q(col('torso'),.1),torsoR:R('torso'),kneeR:R('knee'),hipR:R('hip'),elbowR:R('elbow'),
+    thigh:M('thigh'),wrSh:M('wrSh'),wrShTop:q(col('wrSh'),.9),overHead:frac('wrHead',.1),hipYR:R('hipY'),shYR:R('shY'),anHip:M('anHip')};
+  let key=null,base=0;
+  if(f.overHead>.7&&f.elbowR>45&&f.shYR>.25){key='dominadas';base=.9;}
+  else if(f.torso>55&&f.thigh>50){ // acostado: torso y muslos lejos de la vertical
+    if(f.hipYR>.25&&f.hipR>25&&f.wrSh<.25){key='hipthrust';base=.85;}
+    else if(f.elbowR>35&&f.wrSh>.25){key='banca';base=.85;}
+  }
+  else if(f.anHip>.2&&f.kneeR>35){key='prensa';base=.8;}
+  else if(f.torso>=30&&f.thigh<45&&f.torsoR<20&&f.elbowR>40&&f.kneeR<25){key='remo';base=.8;}
+  else if(f.torsoMin<30){
+    if(f.kneeR>40&&f.hipR>40){key=f.wrSh>-.5?'sentadilla':'pesomuerto';base=.85;}
+    else if(f.hipR>35&&f.torsoR>30){key='pesomuerto';base=.8;}
+    else if(f.elbowR>45&&f.wrShTop>.6&&f.kneeR<20){key='militar';base=.85;}
+    else if(f.elbowR>50&&f.wrShTop<.3&&f.kneeR<20&&f.hipR<20){key='curl';base=.8;}
+  }
+  if(!key)return null;
+  return{key,conf:+(base*Math.min(1,vis/.75)).toFixed(2),f};
+}
 $('flipCam').addEventListener('click',()=>{facing=facing==='user'?'environment':'user';store.set('cdf-facing',facing);endSet();openCamera();});
 
 function geom(){const bw=ov.clientWidth,bh=ov.clientHeight,vw=video.videoWidth,vh=video.videoHeight,s=Math.min(bw/vw,bh/vh);return{x:(bw-vw*s)/2,y:(bh-vh*s)/2,w:vw*s,h:vh*s};}
@@ -566,6 +684,7 @@ function frame(t){
   const dpr=window.devicePixelRatio||1;
   if(ov.width!==Math.round(ov.clientWidth*dpr)||ov.height!==Math.round(ov.clientHeight*dpr)){ov.width=Math.round(ov.clientWidth*dpr);ov.height=Math.round(ov.clientHeight*dpr);}
   octx.setTransform(dpr,0,0,dpr,0,0);octx.clearRect(0,0,ov.clientWidth,ov.clientHeight);
+  samplePose(t);drawSkeleton();
   if(!pt)return;
   wctx.drawImage(video,0,0,work.width,work.height);
   const w=work.width,h=work.height,g=gray();
@@ -682,9 +801,17 @@ function registerExt(type,p){
 }
 
 /* ---------- Historial ---------- */
+function renderWeek(h){
+  const el=$('week');el.innerHTML='';const since=Date.now()-7*864e5,cnt={};
+  h.forEach(r=>{if(r.ts&&r.ts>=since&&r.grupo)cnt[r.grupo]=(cnt[r.grupo]||0)+1});
+  const ks=Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a]);if(!ks.length)return;
+  const lab=document.createElement('span');lab.className='label';lab.textContent='Últimos 7 días';lab.style.alignSelf='center';el.appendChild(lab);
+  ks.forEach(k=>{const c=document.createElement('span');c.className='chip';c.textContent=`${k} · ${cnt[k]} ${cnt[k]===1?'serie':'series'}`;el.appendChild(c);});
+}
 function renderH(){const h=store.get('cdf-hist',[]),tb=$('hist');tb.innerHTML='';
-  if(!h.length){tb.innerHTML='<tr><td colspan="6" class="note">Todavía no hay series. Se guardan solas al terminar.</td></tr>';return;}
-  h.slice().reverse().forEach(r=>{const tr=document.createElement('tr');[r.fecha,r.ej,r.peso?r.peso+' kg':'–',r.reps,'−'+r.vl+'%',r.rir].forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.appendChild(td)});tb.appendChild(tr);});}
+  renderWeek(h);
+  if(!h.length){tb.innerHTML='<tr><td colspan="7" class="note">Todavía no hay series. Se guardan solas al terminar.</td></tr>';return;}
+  h.slice().reverse().forEach(r=>{const tr=document.createElement('tr');[r.fecha,r.ej,r.grupo||'–',r.peso?r.peso+' kg':'–',r.reps,'−'+r.vl+'%',r.rir].forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.appendChild(td)});tb.appendChild(tr);});}
 $('diagBtn').addEventListener('click',()=>{
   const v=video,set=stream&&stream.getVideoTracks()[0]&&stream.getVideoTracks()[0].getSettings?stream.getVideoTracks()[0].getSettings():{};
   const data={version:'diag-1',fecha:new Date().toISOString(),ua:navigator.userAgent,camara:{facing,mirror,ancho:v.videoWidth,alto:v.videoHeight,fps:set.frameRate||null},
@@ -697,12 +824,12 @@ $('diagBtn').addEventListener('click',()=>{
 $('exportCsv').addEventListener('click',()=>{
   const h=store.get('cdf-hist',[]);if(!h.length){toast('Todavía no hay series para exportar.');return;}
   const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
-  const csv=['fecha,ejercicio,peso_kg,reps,perdida_velocidad_pct,reps_en_reserva'].concat(h.map(r=>[r.fecha,r.ej,r.peso||'',r.reps,r.vl,r.rir].map(q).join(','))).join('\n');
+  const csv=['fecha,ejercicio,grupo,patron,peso_kg,reps,perdida_velocidad_pct,reps_en_reserva'].concat(h.map(r=>[r.fecha,r.ej,r.grupo||'',r.patron||'',r.peso||'',r.reps,r.vl,r.rir].map(q).join(','))).join('\n');
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv'}));a.download='cerca-del-fallo.csv';document.body.appendChild(a);a.click();
   setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1000);
 });
 
-loadExercisePrefs();calInfo();render();renderH();
+loadExercisePrefs();calInfo();render();renderH();setExChip();
 })();
 </script>
 </body>
