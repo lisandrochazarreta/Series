@@ -19,6 +19,7 @@
   color-scheme:dark;
 }
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.45}
 body{padding:env(safe-area-inset-top,0px) 0 env(safe-area-inset-bottom,0px)}
 .wrap{max-width:720px;margin:0 auto;padding-inline:14px;padding-block:12px 40px;display:flex;flex-direction:column;gap:12px}
@@ -81,6 +82,15 @@ select,input[type=text]{font:inherit;color:var(--ink);background:var(--bg);borde
 .hold small{font-family:var(--body);font-weight:500;font-size:.85rem;text-transform:none;color:var(--muted)}
 .hold.on{background:var(--accent);border:2px solid var(--accent);color:var(--accent-ink)}
 .hold.on small{color:var(--accent-ink)}
+.cam.mirror video,.cam.mirror canvas{transform:scaleX(-1)}
+.rest{position:absolute;left:50%;bottom:92px;transform:translateX(-50%);background:#000c;border:1px solid #ffffff33;color:#fff;border-radius:99px;padding:4px 12px;font-family:var(--mono);font-size:1rem;pointer-events:none}
+.summary{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--scol,var(--accent));border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:8px}
+.summary .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:8px}
+.summary .grid div{display:flex;flex-direction:column}
+.summary .tip{font-weight:500;margin:0}
+.restbar{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--raise);border-radius:10px;padding:8px 12px}
+.restbar .num{font-size:1.4rem}
+input[type=number]{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:7px 8px;width:100%}
 .toast{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--raise);border:1px solid var(--line);color:var(--ink);padding:10px 14px;border-radius:12px;font-size:.9rem;max-width:calc(100% - 32px);z-index:5}
 table{width:100%;border-collapse:collapse;font-size:.86rem}
 th,td{text-align:left;padding:7px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
@@ -108,8 +118,13 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
         <option value="militar">Press militar</option>
         <option value="pesomuerto">Peso muerto</option>
         <option value="remo">Remo</option>
+        <option value="hipthrust">Hip thrust</option>
+        <option value="prensa">Prensa</option>
+        <option value="dominadas">Dominadas</option>
         <option value="otro">Otro</option>
       </select></label>
+    <label for="weight"><span class="label">Peso (kg)</span>
+      <input type="number" id="weight" inputmode="decimal" min="0" step="0.5" placeholder="ej. 100"></label>
     <label for="alertAt"><span class="label">Avisarme cuando queden</span>
       <select id="alertAt"><option value="3">3 reps</option><option value="2" selected>2 reps</option><option value="1">1 rep</option></select></label>
     <label><span class="label">Fase de esfuerzo</span>
@@ -117,8 +132,11 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
         <button type="button" id="dirUp" aria-pressed="true">Hacia arriba</button>
         <button type="button" id="dirDown" aria-pressed="false">Hacia abajo</button>
       </div></label>
+    <label for="restSecs"><span class="label">Descanso entre series</span>
+      <select id="restSecs"><option value="0">Sin temporizador</option><option value="60">1:00</option><option value="90">1:30</option><option value="120" selected>2:00</option><option value="180">3:00</option><option value="240">4:00</option></select></label>
     <div class="checks">
       <label for="voice"><input type="checkbox" id="voice" checked> Avisos por voz</label>
+      <label for="count"><input type="checkbox" id="count"> Contar reps en voz alta</label>
       <label for="tick"><input type="checkbox" id="tick"> Pitido suave en cada rep</label>
     </div>
   </section>
@@ -144,12 +162,15 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
           <div class="live"><i id="hudLive"></i></div>
         </div>
       </div>
+      <div class="rest" id="hudRest" hidden></div>
       <div class="banner" id="banner" hidden></div>
       <div class="camhint" id="camHint">Apoyá el celular de costado, quieto y a la altura de la barra. Después tocá "Activar cámara".</div>
     </div>
     <div class="row">
       <button class="btn primary" id="startCam" type="button">Activar cámara</button>
+      <button class="btn" id="flipCam" type="button" hidden>Cámara frontal</button>
       <button class="btn" id="newSet" type="button">Terminar serie</button>
+      <button class="btn" id="undoCam" type="button">Borrar última rep</button>
       <button class="btn" id="failSet" type="button">Esta serie fue al fallo</button>
     </div>
     <div class="row">
@@ -190,8 +211,20 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
   </section>
 
   <section style="display:flex;flex-direction:column;gap:8px">
-    <div class="row" style="justify-content:space-between"><h2>Series</h2><span class="note">Se guardan solas al terminar cada serie</span></div>
-    <div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Ejercicio</th><th>Reps</th><th>Pérdida</th><th>Faltaban</th></tr></thead><tbody id="hist"></tbody></table></div>
+    <div class="summary" id="summary" hidden>
+      <div class="row" style="justify-content:space-between"><h2 id="sumTitle">Última serie</h2><span class="note" id="sumWhen"></span></div>
+      <div class="grid">
+        <div><span class="label">Reps</span><span class="num" id="sumReps">–</span></div>
+        <div><span class="label">Te quedaban</span><span class="num" id="sumRir">–</span></div>
+        <div><span class="label">Pérdida</span><span class="num" id="sumVL">–</span></div>
+        <div id="sumRomBox"><span class="label">Recorrido parejo</span><span class="num" id="sumRom">–</span></div>
+      </div>
+      <p class="tip" id="sumTip"></p>
+      <div class="restbar" id="restBar" hidden><span><span class="label">Descanso</span><br><span class="num" id="restLeft">2:00</span></span>
+        <div class="row"><button class="btn small" id="restPlus" type="button">+30 s</button><button class="btn small" id="restSkip" type="button">Saltar</button></div></div>
+    </div>
+    <div class="row" style="justify-content:space-between"><h2>Series</h2><button class="btn small" id="exportCsv" type="button">Exportar CSV</button></div>
+    <div class="tablewrap"><table><thead><tr><th>Fecha</th><th>Ejercicio</th><th>Peso</th><th>Reps</th><th>Pérdida</th><th>Faltaban</th></tr></thead><tbody id="hist"></tbody></table></div>
   </section>
 
   <details>
@@ -211,15 +244,22 @@ const store={get(k,d){try{const v=localStorage.getItem(k);return v===null?d:JSON
 
 /* ---------- Configuración ---------- */
 // Pérdida de velocidad típica en la última rep posible (al fallo), por ejercicio. Se reemplaza con la calibración propia.
-const VLFAIL_DEFAULT={sentadilla:.62,banca:.7,militar:.66,pesomuerto:.56,remo:.66,otro:.66};
+const VLFAIL_DEFAULT={sentadilla:.62,banca:.7,militar:.66,pesomuerto:.56,remo:.66,hipthrust:.62,prensa:.62,dominadas:.6,otro:.66};
 let cal=store.get('cdf-cal',{});
 let dirUp=true,mode='cam';
 const ex=()=>$('exercise').value;
 const vlFail=()=>cal[ex()]||VLFAIL_DEFAULT[ex()];
 function calInfo(){$('calInfo').textContent=cal[ex()]?`Calibrado: fallo a −${Math.round(cal[ex()]*100)}%`:`Fallo estimado a −${Math.round(vlFail()*100)}%`}
 $('exercise').value=store.get('cdf-ex','sentadilla');
-$('exercise').addEventListener('change',()=>{store.set('cdf-ex',ex());calInfo();updateShown(analyze(),true);render();});
-function setDir(up){dirUp=up;$('dirUp').setAttribute('aria-pressed',up);$('dirDown').setAttribute('aria-pressed',!up);resetDetector();}
+// Ajustes que se recuerdan entre sesiones; dirección y último peso, por ejercicio
+const prefs=store.get('cdf-prefs',{});
+['alertAt','restSecs'].forEach(id=>{if(prefs[id]!==undefined)$(id).value=prefs[id];$(id).addEventListener('change',()=>{prefs[id]=$(id).value;store.set('cdf-prefs',prefs)})});
+['voice','count','tick'].forEach(id=>{if(prefs[id]!==undefined)$(id).checked=prefs[id];$(id).addEventListener('change',()=>{prefs[id]=$(id).checked;store.set('cdf-prefs',prefs)})});
+let dirs=store.get('cdf-dir',{dominadas:true}),weights=store.get('cdf-w',{});
+function loadExercisePrefs(){setDir(dirs[ex()]!==false,true);$('weight').value=weights[ex()]??'';}
+$('weight').addEventListener('change',()=>{weights[ex()]=$('weight').value;store.set('cdf-w',weights)});
+$('exercise').addEventListener('change',()=>{store.set('cdf-ex',ex());calInfo();loadExercisePrefs();updateShown(analyze(),true);render();});
+function setDir(up,silent){dirUp=up;$('dirUp').setAttribute('aria-pressed',up);$('dirDown').setAttribute('aria-pressed',!up);if(!silent){dirs[ex()]=up;store.set('cdf-dir',dirs);}resetDetector();}
 $('dirUp').addEventListener('click',()=>setDir(true));$('dirDown').addEventListener('click',()=>setDir(false));
 
 /* ---------- Serie y modelo ---------- */
@@ -348,22 +388,66 @@ function onRep(speed,dur,disp){
     if(a.rir===0){beep(880,350);setTimeout(()=>beep(880,350),420);vib([300,120,300]);say('Fallo. Cortá');showBanner('CORTÁ','--crit',0);}
     else if(a.rir===1){beep(760,220);setTimeout(()=>beep(760,220),300);vib([200,100,200]);say('Una más');showBanner('UNA MÁS','--crit',2500);}
     else{beep(640,250);vib(250);say(`Quedan ${a.rir}`);showBanner(`QUEDAN ${a.rir}`,'--warn',2500);}
-  }else if($('tick').checked){beep(520,70,.12);}
+  }else{
+    if($('count').checked)say(String(a.n));
+    if($('tick').checked)beep(520,70,.12);
+  }
+  stopRest();
 }
 
 function endSet(reason){
   const a=analyze();
   if(a.n>=3){
     const h=store.get('cdf-hist',[]);
-    const row={fecha:new Date().toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),ej:$('exercise').selectedOptions[0].text,reps:a.n,vl:Math.round(a.vlLast*100),rir:rirText(a.rir)};
-    h.push(row);store.set('cdf-hist',h.slice(-60));renderH();
+    const rir=shown.rir;
+    const row={fecha:new Date().toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),ej:$('exercise').selectedOptions[0].text,peso:$('weight').value||'',reps:a.n,vl:Math.round(a.vlLast*100),rir:rirText(rir)};
+    h.push(row);store.set('cdf-hist',h.slice(-200));renderH();
     lastSet={ex:ex(),vlLast:a.vlLast};
-    toast(`${reason||'Serie terminada'}: ${a.n} reps, faltaban ~${rirText(a.rir)}.`);
+    showSummary(a,rir,row);
+    toast(`${reason||'Serie terminada'}: ${a.n} reps, te quedaban ~${rirText(rir)}.`);
+    startRest();
   }else if(a.n){lastSet={ex:ex(),vlLast:a.vlLast};}
   reps=[];announced=Infinity;shown={rir:null,prox:0,upVotes:0};$('banner').hidden=true;setLive(null);render();
   $('holdHint').textContent='Rep 1 · soltá al bloquear';
 }
 setInterval(()=>{if(reps.length&&performance.now()-lastRepAt>35000)endSet('Serie guardada');},2000);
+
+function showSummary(a,rir,row){
+  const target=+$('alertAt').value,w=parseFloat($('weight').value);
+  const disps=reps.map(r=>r.disp).filter(d=>d>1);
+  let rom='–';
+  if(disps.length>=3){const m=disps.reduce((x,y)=>x+y,0)/disps.length,sd=Math.sqrt(disps.reduce((x,y)=>x+(y-m)**2,0)/disps.length);rom=(sd/m<.08?'Sí':sd/m<.15?'Bastante':'No')+` (±${Math.round(sd/m*100)}%)`;}
+  let tip,col;
+  if(rir===null){tip='Serie corta: hacé al menos 4 reps para que el cálculo sea confiable.';col='--muted';}
+  else if(rir>=target+2){col='--ok';tip=w?`Te sobró margen. Próxima serie: probá ${fmtKg(w*1.05)} kg (+5%) o sumá 1–2 reps.`:'Te sobró margen. Próxima serie: subí 2,5–5% el peso o sumá 1–2 reps.';}
+  else if(rir<target){col='--crit';tip=w?`Llegaste más cerca del fallo de lo que querías. Próxima serie: mantené ${fmtKg(w)} kg o bajá a ${fmtKg(w*.95)} kg.`:'Llegaste más cerca del fallo de lo que querías. Próxima serie: mantené o bajá un poco el peso.';}
+  else{col='--warn';tip=w?`Justo en la zona que buscabas. Repetí ${fmtKg(w)} kg.`:'Justo en la zona que buscabas. Repetí el peso.';}
+  $('summary').style.setProperty('--scol',`var(${col})`);
+  $('sumTitle').textContent=`Última serie · ${row.ej}${row.peso?' · '+row.peso+' kg':''}`;
+  $('sumWhen').textContent=row.fecha;
+  $('sumReps').textContent=a.n;$('sumRir').textContent=rir===null?'–':'~'+rirText(rir);
+  $('sumVL').textContent='−'+Math.round(a.vlLast*100)+'%';$('sumRom').textContent=rom;$('sumRomBox').hidden=rom==='–';
+  $('sumTip').textContent=tip;$('summary').hidden=false;
+}
+const fmtKg=v=>(Math.round(v/2.5)*2.5).toLocaleString('es-AR');
+
+/* Descanso entre series */
+let restEnd=0,restTimer=null,warned=false;
+const mmss=s=>Math.floor(s/60)+':'+String(Math.floor(s%60)).padStart(2,'0');
+function startRest(){
+  const secs=+$('restSecs').value;if(!secs)return;
+  restEnd=performance.now()+secs*1000;warned=false;$('restBar').hidden=false;$('hudRest').hidden=false;
+  clearInterval(restTimer);restTimer=setInterval(tickRest,250);tickRest();
+}
+function tickRest(){
+  const left=Math.max(0,(restEnd-performance.now())/1000);
+  $('restLeft').textContent=mmss(Math.ceil(left));$('hudRest').textContent='Descanso '+mmss(Math.ceil(left));
+  if(left<=10&&!warned){warned=true;beep(600,120,.2);}
+  if(left<=0){stopRest();beep(880,200);setTimeout(()=>beep(880,200),260);vib([200,100,200]);say('A la serie');toast('Terminó el descanso.');}
+}
+function stopRest(){clearInterval(restTimer);restTimer=null;$('restBar').hidden=true;$('hudRest').hidden=true;}
+$('restPlus').addEventListener('click',()=>{restEnd+=30000;tickRest();});
+$('restSkip').addEventListener('click',stopRest);
 
 $('failSet').addEventListener('click',()=>{
   const a=analyze();let vl=null;
@@ -402,30 +486,40 @@ hold.addEventListener('contextmenu',e=>e.preventDefault());
 $('undo').addEventListener('click',()=>{reps.pop();announced=Infinity;updateShown(analyze(),true);render();});
 $('resetTap').addEventListener('click',()=>endSet());
 $('newSet').addEventListener('click',()=>endSet());
+$('undoCam').addEventListener('click',()=>{if(!reps.length)return;reps.pop();announced=Infinity;updateShown(analyze(),true);$('banner').hidden=true;render();toast('Borré la última rep.');});
 
 /* ---------- Cámara en vivo ---------- */
 const video=$('video'),ov=$('overlay'),octx=ov.getContext('2d');
 const work=document.createElement('canvas'),wctx=work.getContext('2d',{willReadFrequently:true});
 const PW=240,HS=8,R=18;
-let running=false,pt=null,tpl=null,tplE=1,lost=0;
+let running=false,pt=null,tpl=null,tplE=1,lost=0,facing=store.get('cdf-facing','environment'),stream=null,wakeLock=null,mirror=false;
 
-$('startCam').addEventListener('click',async()=>{
-  unlockAudio();
-  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){$('camHint').textContent='Este navegador no da acceso a la cámara. Abrí la página en Safari o Chrome (fuera de otras apps).';return;}
+async function keepAwake(){try{if(document.visibilityState==='visible'&&running)wakeLock=await navigator.wakeLock.request('screen')}catch(_){}}
+document.addEventListener('visibilitychange',keepAwake);
+
+async function openCamera(){
+  if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){$('camHint').hidden=false;$('camHint').textContent='Este navegador no da acceso a la cámara. Abrí la página en Safari o Chrome (fuera de otras apps).';return;}
   try{
-    const st=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720},frameRate:{ideal:30}},audio:false});
-    video.srcObject=st;await video.play();
-    try{await navigator.wakeLock.request('screen')}catch(_){}
-    $('startCam').hidden=true;
-    $('camHint').textContent='Tocá el centro del disco o el extremo de la barra.';
-    running=true;requestAnimationFrame(loop);
-  }catch(e){$('camHint').textContent='No pude abrir la cámara. Revisá que el navegador tenga permiso para usarla.';}
-});
+    if(stream)stream.getTracks().forEach(t=>t.stop());
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:facing},width:{ideal:1280},height:{ideal:720},frameRate:{ideal:30}},audio:false});
+    video.srcObject=stream;await video.play();
+    const set=stream.getVideoTracks()[0].getSettings?stream.getVideoTracks()[0].getSettings():{};
+    mirror=(set.facingMode||facing)==='user';$('camBox').classList.toggle('mirror',mirror);
+    $('flipCam').textContent=mirror?'Cámara trasera':'Cámara frontal';$('flipCam').hidden=false;
+    keepAwake();
+    $('startCam').hidden=true;pt=null;tpl=null;lost=0;resetDetector();
+    $('camHint').hidden=false;$('camHint').textContent='Tocá el centro del disco o el extremo de la barra.';
+    if(!running){running=true;requestAnimationFrame(loop);}
+  }catch(e){$('camHint').hidden=false;$('camHint').textContent='No pude abrir la cámara. Revisá que el navegador tenga permiso para usarla.';}
+}
+$('startCam').addEventListener('click',()=>{unlockAudio();openCamera();});
+$('flipCam').addEventListener('click',()=>{facing=facing==='user'?'environment':'user';store.set('cdf-facing',facing);endSet();openCamera();});
 
 function geom(){const bw=ov.clientWidth,bh=ov.clientHeight,vw=video.videoWidth,vh=video.videoHeight,s=Math.min(bw/vw,bh/vh);return{x:(bw-vw*s)/2,y:(bh-vh*s)/2,w:vw*s,h:vh*s};}
 ov.addEventListener('click',e=>{
   if(!running)return;unlockAudio();
-  const b=ov.getBoundingClientRect(),g=geom(),px=e.clientX-b.left-g.x,py=e.clientY-b.top-g.y;
+  const b=ov.getBoundingClientRect(),g=geom();let px=e.clientX-b.left-g.x;const py=e.clientY-b.top-g.y;
+  if(mirror)px=g.w-px; // la imagen se ve espejada, el procesamiento no
   if(px<0||py<0||px>g.w||py>g.h)return;
   pt={x:Math.round(px/g.w*work.width),y:Math.round(py/g.h*work.height)};
   tpl=null;lost=0;endSet();resetDetector();
@@ -521,10 +615,17 @@ function registerExt(type,p){
 
 /* ---------- Historial ---------- */
 function renderH(){const h=store.get('cdf-hist',[]),tb=$('hist');tb.innerHTML='';
-  if(!h.length){tb.innerHTML='<tr><td colspan="5" class="note">Todavía no hay series. Se guardan solas al terminar.</td></tr>';return;}
-  h.slice().reverse().forEach(r=>{const tr=document.createElement('tr');[r.fecha,r.ej,r.reps,'−'+r.vl+'%',r.rir].forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.appendChild(td)});tb.appendChild(tr);});}
+  if(!h.length){tb.innerHTML='<tr><td colspan="6" class="note">Todavía no hay series. Se guardan solas al terminar.</td></tr>';return;}
+  h.slice().reverse().forEach(r=>{const tr=document.createElement('tr');[r.fecha,r.ej,r.peso?r.peso+' kg':'–',r.reps,'−'+r.vl+'%',r.rir].forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.appendChild(td)});tb.appendChild(tr);});}
+$('exportCsv').addEventListener('click',()=>{
+  const h=store.get('cdf-hist',[]);if(!h.length){toast('Todavía no hay series para exportar.');return;}
+  const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
+  const csv=['fecha,ejercicio,peso_kg,reps,perdida_velocidad_pct,reps_en_reserva'].concat(h.map(r=>[r.fecha,r.ej,r.peso||'',r.reps,r.vl,r.rir].map(q).join(','))).join('\n');
+  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv'}));a.download='cerca-del-fallo.csv';document.body.appendChild(a);a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1000);
+});
 
-calInfo();render();renderH();
+loadExercisePrefs();calInfo();render();renderH();
 })();
 </script>
 </body>
