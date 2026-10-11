@@ -140,7 +140,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
         <div class="hud-bottom">
           <div class="meter-label"><span>Proximidad al fallo</span><span id="hudProx">0%</span></div>
           <div class="meter"><i id="hudMeter"></i></div>
-          <div class="meter-label"><span>Rep actual</span><span id="hudLiveTxt">–</span></div>
+          <div class="meter-label"><span>Velocidad vs. tu mejor rep</span><span id="hudLiveTxt">–</span></div>
           <div class="live"><i id="hudLive"></i></div>
         </div>
       </div>
@@ -213,12 +213,27 @@ const ex=()=>$('exercise').value;
 const vlFail=()=>cal[ex()]||VLFAIL_DEFAULT[ex()];
 function calInfo(){$('calInfo').textContent=cal[ex()]?`Calibrado: fallo a −${Math.round(cal[ex()]*100)}%`:`Fallo estimado a −${Math.round(vlFail()*100)}%`}
 $('exercise').value=store.get('cdf-ex','sentadilla');
-$('exercise').addEventListener('change',()=>{store.set('cdf-ex',ex());calInfo();render();});
+$('exercise').addEventListener('change',()=>{store.set('cdf-ex',ex());calInfo();updateShown(analyze(),true);render();});
 function setDir(up){dirUp=up;$('dirUp').setAttribute('aria-pressed',up);$('dirDown').setAttribute('aria-pressed',!up);resetDetector();}
 $('dirUp').addEventListener('click',()=>setDir(true));$('dirDown').addEventListener('click',()=>setDir(false));
 
 /* ---------- Serie y modelo ---------- */
 let reps=[],announced=Infinity,lastRepAt=0,lastSet=null;
+// Lo que se muestra: dentro de una serie la fatiga no se revierte, así que
+// "faltan" solo baja (sube únicamente si 2 reps seguidas lo justifican) y la proximidad nunca retrocede.
+let shown={rir:null,prox:0,upVotes:0};
+function updateShown(a,fresh){
+  if(!a.n||a.rir===null){shown={rir:null,prox:0,upVotes:0};return;}
+  if(fresh||shown.rir===null){shown.rir=a.rir;shown.upVotes=0;}
+  else if(a.rir<shown.rir){shown.rir=a.rir;shown.upVotes=0;}
+  else if(a.rir>shown.rir){shown.upVotes++;if(shown.upVotes>=2){shown.rir=Math.min(a.rir,shown.rir+1);shown.upVotes=0;}}
+  else shown.upVotes=0;
+  // Proximidad = cuánta velocidad perdiste respecto de la pérdida que marca el fallo,
+  // alineada con "faltan": 3 → 55%, 2 → 70%, 1 → 85%, 0 → 100%.
+  const floor={0:1,1:.85,2:.7,3:.55}[shown.rir]||0;
+  const p=shown.rir===0?1:Math.max(floor,Math.min(.95,a.prox));
+  shown.prox=fresh?p:Math.max(shown.prox,p);
+}
 
 function analyze(){
   const n=reps.length;
@@ -259,20 +274,20 @@ function verdictText(a){
 }
 
 function render(){
-  const a=analyze();
+  const a=analyze();a.rir=a.n?shown.rir:null;
   const z=zoneOf(a.rir??null);
   $('readout').style.setProperty('--zone',`var(${z})`);
   $('rirNum').textContent=a.n?rirText(a.rir):'–';$('verdict').textContent=verdictText(a);
   $('sReps').textContent=a.n;$('sVL').textContent=a.n>1?Math.round(a.vlLast*100)+'%':'–';
   $('sFail').textContent='−'+Math.round(vlFail()*100)+'%';
-  $('sProx').textContent=a.n>1?Math.round(Math.min(1,a.prox)*100)+'%':'–';
+  $('sProx').textContent=a.rir!==null?Math.round(shown.prox*100)+'%':'–';
   // HUD
   $('hudRir').textContent=a.n?rirText(a.rir):'–';
   $('hudRir').style.setProperty('--zone',z==='--ink'?'#fff':`var(${z})`);
   $('hudSub').textContent=!a.n?'Esperando':a.rir===null?'Tomando referencia':a.rir===0?'Fallo':a.rir===1?'rep':'reps';
   $('hudReps').textContent=a.n+(a.n===1?' rep':' reps');
   $('hudVL').textContent=a.n>1?'pérdida −'+Math.round(a.vlLast*100)+'%':'pérdida –';
-  const p=a.n>1?Math.min(1,a.prox):0;
+  const p=a.rir!==null?shown.prox:0;
   $('hudProx').textContent=Math.round(p*100)+'%';
   $('hudMeter').style.width=(p*100)+'%';
   $('hudMeter').style.setProperty('--mcol',`var(${p>=.8?'--crit':p>=.6?'--warn':'--ok'})`);
@@ -297,6 +312,13 @@ function drawBars(a){
   svg.innerHTML=s;
 }
 
+function setLive(v,final){
+  if(v===null||!isFinite(v)){$('hudLive').style.width='0';$('hudLiveTxt').textContent='–';return;}
+  const c=Math.max(0,Math.min(1.2,v));
+  $('hudLive').style.width=Math.min(100,c*100)+'%';
+  $('hudLiveTxt').textContent=(final?'Última rep: ':'Subiendo: ')+Math.round(c*100)+'% de tu mejor';
+}
+
 /* ---------- Avisos (solo cerca del fallo) ---------- */
 let actx=null;
 function unlockAudio(){
@@ -311,7 +333,8 @@ function showBanner(text,col,ms){const b=$('banner');b.textContent=text;b.style.
 
 function onRep(speed,dur,disp){
   reps.push({speed,dur,disp});lastRepAt=performance.now();
-  const a=analyze();render();
+  const a=analyze();updateShown(a,false);a.rir=shown.rir;render();
+  setLive(speed/a.ref,true);
   const alertAt=+$('alertAt').value;
   // Una sola alerta por nivel, y nunca antes de tener referencia
   const guard=a.n>=4||(a.n>=3&&a.prox>=.8);
@@ -332,7 +355,7 @@ function endSet(reason){
     lastSet={ex:ex(),vlLast:a.vlLast};
     toast(`${reason||'Serie terminada'}: ${a.n} reps, faltaban ~${rirText(a.rir)}.`);
   }else if(a.n){lastSet={ex:ex(),vlLast:a.vlLast};}
-  reps=[];announced=Infinity;$('banner').hidden=true;render();
+  reps=[];announced=Infinity;shown={rir:null,prox:0,upVotes:0};$('banner').hidden=true;setLive(null);render();
   $('holdHint').textContent='Rep 1 · soltá al bloquear';
 }
 setInterval(()=>{if(reps.length&&performance.now()-lastRepAt>35000)endSet('Serie guardada');},2000);
@@ -363,7 +386,7 @@ hold.addEventListener('pointerup',()=>{if(t0===null)return;const d=(performance.
   if(d<.2||d>8)return;onRep(1/d,d,1);$('holdHint').textContent=`Rep ${reps.length+1} · soltá al bloquear`;});
 hold.addEventListener('pointercancel',()=>{t0=null;hold.classList.remove('on')});
 hold.addEventListener('contextmenu',e=>e.preventDefault());
-$('undo').addEventListener('click',()=>{reps.pop();announced=Infinity;render();});
+$('undo').addEventListener('click',()=>{reps.pop();announced=Infinity;updateShown(analyze(),true);render();});
 $('resetTap').addEventListener('click',()=>endSet());
 $('newSet').addEventListener('click',()=>endSet());
 
@@ -460,10 +483,11 @@ function detect(t,yPix,h){
   }
   // Velocidad en vivo durante la subida
   phaseUp=dir===1&&lastExt&&lastExt.type==='bottom';
-  if(phaseUp&&med>0){
-    const a=analyze(),d=e-lastExt.e,el=t-lastExt.t;
-    if(d>.1*med&&el>0&&a.ref){
-      const v=(d/el)/a.ref;$('hudLive').style.width=Math.min(100,v*100)+'%';$('hudLiveTxt').textContent=Math.round(Math.min(1.2,v)*100)+'% de tu mejor';
+  if(phaseUp&&med>0&&reps.length){
+    const b=lastExt.e,start=b+.1*med,d=e-start;
+    if(d>.25*med){
+      let t10=null;for(const s of buf){if(s.t>=lastExt.t&&s.e>=start){t10=s.t;break}}
+      if(t10!==null&&t>t10){const ref=Math.max(...reps.slice(0,3).map(r=>r.speed));setLive((d/(t-t10))/ref,false);}
     }
   }
 }
