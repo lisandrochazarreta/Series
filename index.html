@@ -491,8 +491,8 @@ $('undoCam').addEventListener('click',()=>{if(!reps.length)return;reps.pop();ann
 /* ---------- Cámara en vivo ---------- */
 const video=$('video'),ov=$('overlay'),octx=ov.getContext('2d');
 const work=document.createElement('canvas'),wctx=work.getContext('2d',{willReadFrequently:true});
-const PW=240,HS=8,R=18;
-let running=false,pt=null,tpl=null,tplE=1,lost=0,facing=store.get('cdf-facing','environment'),stream=null,wakeLock=null,mirror=false;
+const PW=240,HS=9,R=32;
+let running=false,pt=null,tpl=null,tpl0=null,tplE=1,lost=0,vel={x:0,y:0},lastFT=null,facing=store.get('cdf-facing','environment'),stream=null,wakeLock=null,mirror=false;
 
 async function keepAwake(){try{if(document.visibilityState==='visible'&&running)wakeLock=await navigator.wakeLock.request('screen')}catch(_){}}
 document.addEventListener('visibilitychange',keepAwake);
@@ -507,9 +507,9 @@ async function openCamera(){
     mirror=(set.facingMode||facing)==='user';$('camBox').classList.toggle('mirror',mirror);
     $('flipCam').textContent=mirror?'Cámara trasera':'Cámara frontal';$('flipCam').hidden=false;
     keepAwake();
-    $('startCam').hidden=true;pt=null;tpl=null;lost=0;resetDetector();
-    $('camHint').hidden=false;$('camHint').textContent='Tocá el centro del disco o el extremo de la barra.';
-    if(!running){running=true;requestAnimationFrame(loop);}
+    $('startCam').hidden=true;pt=null;tpl=null;tpl0=null;lost=0;resetDetector();
+    $('camHint').hidden=false;$('camHint').textContent=mirror?'Cámara frontal: apoyá el celular de costado a la barra, con buena luz, y tocá el centro del disco.':'Tocá el centro del disco o el extremo de la barra.';
+    if(!running){running=true;schedule();}
   }catch(e){$('camHint').hidden=false;$('camHint').textContent='No pude abrir la cámara. Revisá que el navegador tenga permiso para usarla.';}
 }
 $('startCam').addEventListener('click',()=>{unlockAudio();openCamera();});
@@ -522,7 +522,7 @@ ov.addEventListener('click',e=>{
   if(mirror)px=g.w-px; // la imagen se ve espejada, el procesamiento no
   if(px<0||py<0||px>g.w||py>g.h)return;
   pt={x:Math.round(px/g.w*work.width),y:Math.round(py/g.h*work.height)};
-  tpl=null;lost=0;endSet();resetDetector();
+  tpl=null;tpl0=null;lost=0;vel={x:0,y:0};endSet();resetDetector();
   $('camHint').hidden=false;$('camHint').textContent='Listo. Arrancá la serie: te aviso solo cuando estés cerca del fallo.';
   setTimeout(()=>{if(running&&!lost)$('camHint').hidden=true},2500);
 });
@@ -530,37 +530,64 @@ ov.addEventListener('click',e=>{
 function gray(){const d=wctx.getImageData(0,0,work.width,work.height).data,g=new Float32Array(work.width*work.height);for(let i=0,j=0;i<g.length;i++,j+=4)g[i]=.299*d[j]+.587*d[j+1]+.114*d[j+2];return g}
 function patch(g,w,cx,cy){const p=new Float32Array((2*HS+1)**2);let k=0,m=0;for(let y=-HS;y<=HS;y++)for(let x=-HS;x<=HS;x++){const v=g[(cy+y)*w+cx+x];p[k++]=v;m+=v}m/=p.length;for(let i=0;i<p.length;i++)p[i]-=m;return p}
 function energy(p){let e=0;for(const v of p)e+=v*v;return e}
-function track(g,w,h,px,py){
-  let best=Infinity,bx=px,by=py;const n=(2*HS+1)**2;
-  for(let dy=-R;dy<=R;dy++){const cy=py+dy;if(cy<HS||cy>=h-HS)continue;
-    for(let dx=-R;dx<=R;dx++){const cx=px+dx;if(cx<HS||cx>=w-HS)continue;
-      let m=0;for(let y=-HS;y<=HS;y++){const o=(cy+y)*w+cx;for(let x=-HS;x<=HS;x++)m+=g[o+x]}m/=n;
-      let s=0,k=0;for(let y=-HS;y<=HS&&s<best;y++){const o=(cy+y)*w+cx;for(let x=-HS;x<=HS;x++){const d=g[o+x]-m-tpl[k++];s+=d*d}}
-      if(s<best){best=s;bx=cx;by=cy}}}
-  return{x:bx,y:by,q:best/(tplE+1)};
+/* Seguimiento por correlación normalizada: tolera cambios de brillo y contraste
+   (la cámara frontal ajusta mucho la exposición), predice el movimiento entre cuadros
+   y, si pierde el punto, lo vuelve a buscar en una zona más amplia con la plantilla original. */
+function ncc(g,w,cx,cy,t,tE){
+  const n=t.length;let m=0;
+  for(let y=-HS;y<=HS;y++){const o=(cy+y)*w+cx;for(let x=-HS;x<=HS;x++)m+=g[o+x]}m/=n;
+  let num=0,e=0,k=0;
+  for(let y=-HS;y<=HS;y++){const o=(cy+y)*w+cx;for(let x=-HS;x<=HS;x++){const d=g[o+x]-m;num+=d*t[k++];e+=d*d}}
+  return num/Math.sqrt((e+1e-6)*(tE+1e-6));
+}
+function search(g,w,h,t,px,py,rad,step){
+  let best=-2,bx=px,by=py;const tE=energy(t);
+  for(let dy=-rad;dy<=rad;dy+=step){const cy=py+dy;if(cy<HS||cy>=h-HS)continue;
+    for(let dx=-rad;dx<=rad;dx+=step){const cx=px+dx;if(cx<HS||cx>=w-HS)continue;
+      const sc=ncc(g,w,cx,cy,t,tE);if(sc>best){best=sc;bx=cx;by=cy}}}
+  if(step>1){ // afinar alrededor del mejor
+    const r=search(g,w,h,t,bx,by,step,1);if(r.score>best)return r;}
+  return{x:bx,y:by,score:best};
+}
+const clampX=(v,w)=>Math.min(Math.max(Math.round(v),HS),w-HS-1);
+
+function schedule(){
+  if(!running)return;
+  if(video.requestVideoFrameCallback)video.requestVideoFrameCallback((now,meta)=>{frame(meta.mediaTime||now/1000);schedule();});
+  else requestAnimationFrame(now=>{frame(now/1000);schedule();});
 }
 
-function loop(now){
-  if(!running)return;requestAnimationFrame(loop);
+function frame(t){
   if(!video.videoWidth)return;
-  if(work.width!==PW){work.width=PW;work.height=Math.round(PW*video.videoHeight/video.videoWidth);}
+  if(work.width!==PW||work.height!==Math.round(PW*video.videoHeight/video.videoWidth)){work.width=PW;work.height=Math.round(PW*video.videoHeight/video.videoWidth);}
   const dpr=window.devicePixelRatio||1;
   if(ov.width!==Math.round(ov.clientWidth*dpr)||ov.height!==Math.round(ov.clientHeight*dpr)){ov.width=Math.round(ov.clientWidth*dpr);ov.height=Math.round(ov.clientHeight*dpr);}
   octx.setTransform(dpr,0,0,dpr,0,0);octx.clearRect(0,0,ov.clientWidth,ov.clientHeight);
   if(!pt)return;
   wctx.drawImage(video,0,0,work.width,work.height);
   const w=work.width,h=work.height,g=gray();
-  pt.x=Math.min(Math.max(pt.x,HS),w-HS-1);pt.y=Math.min(Math.max(pt.y,HS),h-HS-1);
-  if(!tpl){tpl=patch(g,w,pt.x,pt.y);tplE=energy(tpl);
-    if(tplE<(2*HS+1)**2*40){$('camHint').hidden=false;$('camHint').textContent='Ese punto tiene poco contraste. Tocá el borde del disco o pegale una cinta de color.';}
+  pt.x=clampX(pt.x,w);pt.y=Math.min(Math.max(Math.round(pt.y),HS),h-HS-1);
+  if(!tpl){
+    tpl=patch(g,w,pt.x,pt.y);tpl0=tpl.slice();tplE=energy(tpl);lastFT=t;
+    if(tplE<(2*HS+1)**2*30){$('camHint').hidden=false;$('camHint').textContent='Ese punto tiene poco contraste. Tocá el borde del disco o pegale una cinta de color.';}
   }else{
-    const p=track(g,w,h,pt.x,pt.y);
-    if(p.q>0.9){ // la imagen del punto ya no se parece: probablemente se perdió
-      lost++;if(lost===20){$('camHint').hidden=false;$('camHint').textContent='Perdí el punto. Tocá de nuevo el disco.';}
+    const dt=lastFT===null?1/30:Math.min(.2,Math.max(.001,t-lastFT));lastFT=t;
+    // predicción: donde debería estar según la velocidad reciente
+    const px=clampX(pt.x+vel.x*dt,w),py=Math.min(Math.max(Math.round(pt.y+vel.y*dt),HS),h-HS-1);
+    let r=search(g,w,h,tpl,px,py,R,2);
+    if(r.score<.55){ // probar con la plantilla original y en zona más grande
+      const r2=search(g,w,h,tpl0,pt.x,pt.y,lost>3?60:R*2,3);if(r2.score>r.score)r=r2;
+    }
+    if(r.score<.5){
+      lost++;vel={x:0,y:0};
+      if(lost===15){$('camHint').hidden=false;$('camHint').textContent='Perdí el punto. Quedate quieto un segundo o tocá de nuevo el disco.';}
     }else{
-      if(lost>=20)$('camHint').hidden=true;lost=0;pt.x=p.x;pt.y=p.y;
-      if(p.q<0.35){const np=patch(g,w,pt.x,pt.y);for(let i=0;i<tpl.length;i++)tpl[i]=.9*tpl[i]+.1*np[i];tplE=energy(tpl);}
-      detect(now/1000,pt.y,h);
+      if(lost>=15)$('camHint').hidden=true;
+      const nx=r.x,ny=r.y;
+      vel={x:.6*vel.x+.4*(nx-pt.x)/dt,y:.6*vel.y+.4*(ny-pt.y)/dt};
+      pt.x=nx;pt.y=ny;lost=0;
+      if(r.score>.85){const np=patch(g,w,pt.x,pt.y);for(let i=0;i<tpl.length;i++)tpl[i]=.9*tpl[i]+.1*np[i];}
+      detect(t,pt.y,h);
     }
   }
   const gm=geom(),sx=gm.x+pt.x/w*gm.w,sy=gm.y+pt.y/h*gm.h,bs=(2*HS+1)/w*gm.w;
@@ -576,7 +603,7 @@ const median=a=>{if(!a.length)return 0;const s=a.slice().sort((x,y)=>x-y);return
 function detect(t,yPix,h){
   sm=sm===null?yPix:sm+.5*(yPix-sm);
   const e=dirUp?-sm:sm; // crece en la dirección del esfuerzo
-  buf.push({t,e});while(buf.length&&t-buf[0].t>8)buf.shift();
+  buf.push({t,e,r:dirUp?-yPix:yPix}); // r: sin suavizar, para medir tiempos sin retrasowhile(buf.length&&t-buf[0].t>8)buf.shift();
   const med=median(dispHist),H=Math.max(.035*h,.3*med);
   if(ext===null){ext={t,e};dir=1;return;}
   if(dir>0){
@@ -602,8 +629,13 @@ function registerExt(type,p){
   if(type==='top'&&lastExt&&lastExt.type==='bottom'){
     const b=lastExt,d=p.e-b.e,med=median(dispHist),hh=work.height||1;
     if(d>=.06*hh&&(!med||d>=.6*med)&&(!med||d<=1.6*med)){
-      let t10=null,t90=null;
-      for(const s of buf){if(s.t<b.t||s.t>p.t)continue;if(t10===null&&s.e>=b.e+.1*d)t10=s.t;if(t90===null&&s.e>=b.e+.9*d){t90=s.t;break}}
+      // tiempos de cruce interpolados entre cuadros: con cámaras lentas (12–15 cuadros/s) evita errores grandes
+      let t10=null,t90=null,prevS=null;const l10=b.e+.1*d,l90=b.e+.9*d;
+      const cross=(a,c,l)=>a.t+(c.t-a.t)*((l-a.r)/((c.r-a.r)||1e-9));
+      for(const s of buf){if(s.t<b.t-.15){prevS=s;continue;}if(s.t>p.t+.15)break;
+        if(t10===null&&s.r>=l10)t10=prevS&&prevS.r<l10?cross(prevS,s,l10):s.t;
+        if(t10!==null&&t90===null&&s.r>=l90){t90=prevS&&prevS.r<l90?cross(prevS,s,l90):s.t;break}
+        prevS=s;}
       if(t10!==null&&t90!==null&&t90>t10){
         const dur=t90-t10;
         if(dur>.08&&dur<5){dispHist.push(d);if(dispHist.length>6)dispHist.shift();onRep(.8*d/dur,dur,d);}
