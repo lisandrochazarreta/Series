@@ -186,6 +186,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
       <button class="btn" id="flipCam" type="button" hidden>Cámara frontal</button>
       <button class="btn" id="newSet" type="button">Terminar serie</button>
       <button class="btn" id="undoCam" type="button">Borrar última rep</button>
+      <button class="btn small" id="bodyMode" type="button" hidden>Contar con el cuerpo</button>
       <button class="btn small" id="diagBtn" type="button">Descargar diagnóstico</button>
       <button class="btn" id="failSet" type="button">Esta serie fue al fallo</button>
     </div>
@@ -194,7 +195,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
       <button class="btn small" id="moreLeft" type="button">Me quedaban más reps</button>
       <button class="btn small" id="lessLeft" type="button">Fallé antes</button>
     </div>
-    <p class="note">Tocá en la imagen el centro del disco o el extremo de la barra. Las primeras 2–3 reps sirven de referencia: hacelas con buena técnica y a máxima intención de velocidad.</p>
+    <p class="note">Las reps se cuentan con tu cuerpo: el punto naranja marca la articulación que se usa (muñecas, hombros, cadera o tobillos, la que más se mueve). Si tocás un disco, la app sigue ese disco en su lugar; "Contar con el cuerpo" vuelve al modo automático. Las primeras 2–3 reps sirven de referencia: hacelas con buena técnica y a máxima intención de velocidad.</p>
   </section>
 
   <section id="p-tap" hidden style="display:flex;flex-direction:column;gap:10px">
@@ -406,6 +407,7 @@ function showBanner(text,col,ms){const b=$('banner');b.textContent=text;b.style.
 
 function onRep(speed,dur,disp){
   reps.push({speed,dur,disp});lastRepAt=performance.now();announcedThisRep=false;
+  if(!pt&&poseKey)poseLocked=true;
   if(reps.length===1)setPoseT=poseBuf.length?poseBuf[poseBuf.length-1].t:null;
   maybeClassify();
   const a=analyze();updateShown(a,false);a.rir=shown.rir;render();
@@ -440,6 +442,7 @@ function endSet(reason){
   }else if(a.n){lastSet={ex:ex(),vlLast:a.vlLast};}
   reps=[];announced=Infinity;shown={rir:null,prox:0,upVotes:0};$('banner').hidden=true;setLive(null);render();
   setPoseT=null;lastGuess=null;guessVotes=0;manualLock=false;
+  if(!pt){resetPoseCount();if(typeof resetDetector==='function')resetDetector();}
   coachReset();
   $('holdHint').textContent='Rep 1 · soltá al bloquear';
 }
@@ -542,7 +545,8 @@ async function openCamera(){
     $('flipCam').textContent=mirror?'Cámara trasera':'Cámara frontal';$('flipCam').hidden=false;
     keepAwake();
     $('startCam').hidden=true;pt=null;tpl=null;tpl0=null;lost=0;resetDetector();
-    $('camHint').hidden=false;$('camHint').textContent=mirror?'Cámara frontal: apoyá el celular de costado a la barra, con buena luz, y tocá el centro del disco.':'Tocá el centro del disco o el extremo de la barra.';
+    $('camHint').hidden=false;$('camHint').dataset.auto='1';$('camHint').textContent='Ponete de costado, de cuerpo entero, y arrancá: cuento las reps con tu cuerpo. Si preferís, tocá el disco para seguirlo a él.';
+    setTimeout(()=>{if(running&&!pt&&lastSeenBody)$('camHint').hidden=true},4000);
     if(!running){running=true;schedule();}
     initPose();setExChip();
   }catch(e){$('camHint').hidden=false;$('camHint').textContent='No pude abrir la cámara. Revisá que el navegador tenga permiso para usarla.';}
@@ -555,7 +559,7 @@ const MP_BASE='https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35';
 const POSE_MODEL='https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task';
 let poser=null,poseState='off',poseBuf=[],lastPoseMs=0,lastLm=null,setPoseT=null,lastGuess=null,guessVotes=0,manualLock=false,exAuto=false;
 async function initPose(){
-  if(poser||poseState==='loading'||!$('autoEx').checked)return;
+  if(poser||poseState==='loading')return;
   poseState='loading';setExChip();
   try{
     const {FilesetResolver,PoseLandmarker}=await import(MP_BASE+'/vision_bundle.mjs');
@@ -563,7 +567,8 @@ async function initPose(){
     const mk=d=>PoseLandmarker.createFromOptions(files,{baseOptions:{modelAssetPath:POSE_MODEL,delegate:d},runningMode:'VIDEO',numPoses:1,minPoseDetectionConfidence:.5,minPosePresenceConfidence:.5,minTrackingConfidence:.5});
     try{poser=await mk('GPU')}catch(_){poser=await mk('CPU')}
     poseState='ready';
-  }catch(e){poseState='error';console.warn('pose',e);}
+  }catch(e){poseState='error';console.warn('pose',e);
+    if(running&&!pt){$('camHint').hidden=false;$('camHint').textContent='No pude cargar el detector del cuerpo. Tocá el disco para contar siguiéndolo.';}}
   setExChip();
 }
 function setExChip(){
@@ -581,20 +586,70 @@ function setExChip(){
   $('hudEx').textContent=running?`${exName(k)} · ${info.grupo}${exAuto?' · auto':''}`:'';
 }
 function samplePose(t){
-  if(!poser||!$('autoEx').checked)return;
-  const nowMs=performance.now();if(nowMs-lastPoseMs<110)return;lastPoseMs=nowMs;
+  if(!poser)return false;
+  // Contando con el cuerpo: cada cuadro. Siguiendo un disco: ~9 por segundo, para no frenar el seguimiento.
+  const nowMs=performance.now();if(nowMs-lastPoseMs<(pt?110:25))return false;lastPoseMs=nowMs;
   try{
     const r=poser.detectForVideo(video,nowMs),lm=r&&r.landmarks&&r.landmarks[0];
-    if(lm){lastLm=lm;poseBuf.push({t,lm:lm.map(p=>({x:p.x,y:p.y,v:p.visibility===undefined?1:p.visibility}))});while(poseBuf.length&&t-poseBuf[0].t>25)poseBuf.shift();}
-    else lastLm=null;
+    if(lm){lastLm=lm;poseBuf.push({t,lm:lm.map(p=>({x:p.x,y:p.y,v:p.visibility===undefined?1:p.visibility}))});while(poseBuf.length&&t-poseBuf[0].t>25)poseBuf.shift();return true;}
+    lastLm=null;
   }catch(_){}
+  return false;
+}
+
+/* Conteo con el cuerpo: se usa la articulación que más sube y baja (muñecas, hombros, cadera o tobillos).
+   Se elige sola antes de la primera rep y queda fija hasta que termina la serie. */
+const CANDS={wr:{ids:[15,16],name:'muñecas'},sh:{ids:[11,12],name:'hombros'},hp:{ids:[23,24],name:'cadera'},an:{ids:[27,28],name:'tobillos'}};
+let candBuf={wr:[],sh:[],hp:[],an:[]},poseKey=null,poseLocked=false,lastSeenBody=0;
+function resetPoseCount(){candBuf={wr:[],sh:[],hp:[],an:[]};poseKey=null;poseLocked=false;}
+function poseCount(t){
+  const s=poseBuf[poseBuf.length-1];if(!s||s.t!==t)return;
+  lastSeenBody=t;
+  for(const k in CANDS){
+    let sy=0,sw=0,vmax=0;CANDS[k].ids.forEach(i=>{const p=s.lm[i];vmax=Math.max(vmax,p.v);if(p.v>.5){sy+=p.y*p.v;sw+=p.v}});
+    candBuf[k].push({t,y:sw>0?sy/sw:null});while(candBuf[k].length&&t-candBuf[k][0].t>6)candBuf[k].shift();
+  }
+  if(!poseLocked){
+    // Puntaje = recorrido × qué tanto se ve ÷ ruido. Así no gana una articulación que "se mueve" solo porque tiembla o aparece y desaparece.
+    let best=null,bestS=0;
+    for(const k in candBuf){
+      const b=candBuf[k],ok=b.filter(v=>v.y!==null);if(b.length<10)continue;
+      const vis=ok.length/b.length;if(vis<.75)continue;
+      const ys=ok.map(v=>v.y).slice().sort((x,y)=>x-y),range=ys[Math.floor(.9*(ys.length-1))]-ys[Math.floor(.1*(ys.length-1))];
+      const acc=[];for(let i=2;i<ok.length;i++)acc.push(Math.abs(ok[i].y-2*ok[i-1].y+ok[i-2].y));
+      const jit=acc.length?acc.sort((x,y)=>x-y)[acc.length>>1]:0;
+      const score=range*vis/(1+jit/.003);
+      if(range>.05&&score>bestS){bestS=score;best=k;}
+    }
+    const cur=poseKey?candBufScore(poseKey):0;
+    if(best&&best!==poseKey&&(!poseKey||bestS>1.3*cur)){
+      poseKey=best;resetDetector();logEv(t,'articulación',CANDS[best].name,bestS*100);
+      // repasar lo que ya pasó con la articulación nueva, para no perder reps
+      for(const v of candBuf[best])if(v.y!==null&&v.t<t)detect(v.t,v.y*work.height,work.height);
+    }
+  }
+  if(!poseKey)return;
+  const last=candBuf[poseKey][candBuf[poseKey].length-1];
+  if(!last||last.t!==t||last.y===null)return; // la articulación elegida no se vio en este cuadro
+  detect(t,last.y*work.height,work.height);
+}
+function candBufScore(k){
+  const b=candBuf[k],ok=b.filter(v=>v.y!==null);if(b.length<10||!ok.length)return 0;
+  const vis=ok.length/b.length,ys=ok.map(v=>v.y).sort((x,y)=>x-y),range=ys[Math.floor(.9*(ys.length-1))]-ys[Math.floor(.1*(ys.length-1))];
+  const acc=[];for(let i=2;i<ok.length;i++)acc.push(Math.abs(ok[i].y-2*ok[i-1].y+ok[i-2].y));
+  const jit=acc.length?acc.sort((x,y)=>x-y)[acc.length>>1]:0;
+  return range*vis/(1+jit/.003);
 }
 const BONES=[[11,13],[13,15],[12,14],[14,16],[11,12],[11,23],[12,24],[23,24],[23,25],[25,27],[24,26],[26,28]];
 function drawSkeleton(){
-  if(!lastLm||!$('autoEx').checked)return;const g=geom();
+  if(!lastLm)return;const g=geom();
   octx.strokeStyle='#ffffff80';octx.lineWidth=2;octx.beginPath();
   BONES.forEach(([a,b])=>{const A=lastLm[a],B=lastLm[b];if((A.visibility??1)<.4||(B.visibility??1)<.4)return;octx.moveTo(g.x+A.x*g.w,g.y+A.y*g.h);octx.lineTo(g.x+B.x*g.w,g.y+B.y*g.h);});
   octx.stroke();
+  if(!pt&&poseKey){ // marcar la articulación con la que se cuenta
+    octx.fillStyle=phaseUp?'#4cc285':'#ff7a3d';
+    CANDS[poseKey].ids.forEach(i=>{const p=lastLm[i];if((p.visibility??1)<.5)return;octx.beginPath();octx.arc(g.x+p.x*g.w,g.y+p.y*g.h,7,0,7);octx.fill();});
+  }
 }
 function maybeClassify(){
   if(mode!=='cam'||!$('autoEx').checked||manualLock||reps.length<2||setPoseT===null||!video.videoHeight)return;
@@ -673,7 +728,7 @@ function coachEval(f,w,exKey){
 function coachRep(w){
   if(mode!=='cam'||!$('coach').checked||!video.videoHeight)return;
   const S=poseBuf.filter(s=>s.t>=w.t0&&s.t<=w.t1);
-  const f=$('autoEx').checked?repFeatures(S,video.videoWidth/video.videoHeight):null;
+  const f=repFeatures(S,video.videoWidth/video.videoHeight);
   const faults=coachEval(f,w,ex());coach.evaluated++;
   const keys=new Set(faults.map(r=>r.k));
   [...(COACH[ex()]||[]),ECC].forEach(r=>{const h=coach.hist[r.k]||(coach.hist[r.k]=[]);h.push(keys.has(r.k));if(h.length>3)h.shift();if(keys.has(r.k))coach.counts[r.k]=(coach.counts[r.k]||0)+1;});
@@ -727,6 +782,7 @@ function classifyPose(S,aspect){
   if(!key)return null;
   return{key,conf:+(base*Math.min(1,vis/.75)).toFixed(2),f};
 }
+$('bodyMode').addEventListener('click',()=>{pt=null;tpl=null;tpl0=null;lost=0;endSet();resetPoseCount();resetDetector();$('bodyMode').hidden=true;toast('Contando con el cuerpo.');});
 $('flipCam').addEventListener('click',()=>{facing=facing==='user'?'environment':'user';store.set('cdf-facing',facing);endSet();openCamera();});
 
 function geom(){const bw=ov.clientWidth,bh=ov.clientHeight,vw=video.videoWidth,vh=video.videoHeight,s=Math.min(bw/vw,bh/vh);return{x:(bw-vw*s)/2,y:(bh-vh*s)/2,w:vw*s,h:vh*s};}
@@ -736,7 +792,7 @@ ov.addEventListener('click',e=>{
   if(mirror)px=g.w-px; // la imagen se ve espejada, el procesamiento no
   if(px<0||py<0||px>g.w||py>g.h)return;
   pt={x:Math.round(px/g.w*work.width),y:Math.round(py/g.h*work.height)};
-  tpl=null;tpl0=null;lost=0;vel={x:0,y:0};endSet();resetDetector();
+  tpl=null;tpl0=null;lost=0;vel={x:0,y:0};endSet();resetDetector();$('bodyMode').hidden=false;
   $('camHint').hidden=false;$('camHint').textContent='Listo. Arrancá la serie: te aviso solo cuando estés cerca del fallo.';
   setTimeout(()=>{if(running&&!lost)$('camHint').hidden=true},2500);
 });
@@ -777,8 +833,19 @@ function frame(t){
   const dpr=window.devicePixelRatio||1;
   if(ov.width!==Math.round(ov.clientWidth*dpr)||ov.height!==Math.round(ov.clientHeight*dpr)){ov.width=Math.round(ov.clientWidth*dpr);ov.height=Math.round(ov.clientHeight*dpr);}
   octx.setTransform(dpr,0,0,dpr,0,0);octx.clearRect(0,0,ov.clientWidth,ov.clientHeight);
-  samplePose(t);drawSkeleton();
-  if(!pt)return;
+  const gotPose=samplePose(t);
+  if(!pt){
+    if(gotPose)poseCount(t);
+    drawSkeleton();drawTrace(t);
+    if(poseState==='ready'&&running){
+      const hint=$('camHint'),noBody=t-lastSeenBody>2;
+      if(noBody&&hint.hidden){hint.hidden=false;hint.textContent='No te veo. Ponete de costado y que entre el cuerpo entero en la imagen.';}
+      else if(!noBody&&!hint.hidden&&hint.dataset.auto!=='1'){hint.hidden=true;}
+      hint.dataset.auto='';
+    }
+    return;
+  }
+  drawSkeleton();
   wctx.drawImage(video,0,0,work.width,work.height);
   const w=work.width,h=work.height,g=gray();
   pt.x=clampX(pt.x,w);pt.y=Math.min(Math.max(Math.round(pt.y),HS),h-HS-1);
@@ -924,6 +991,7 @@ $('exportCsv').addEventListener('click',()=>{
   setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1000);
 });
 
+window.cdfDebug=()=>({poseState,poses:poseBuf.length,poseKey,poseLocked,cand:Object.fromEntries(Object.entries(candBuf).map(([k,v])=>[k,v.length])),events:diag.events.slice(-30),reps:reps.length,pt});
 loadExercisePrefs();calInfo();render();renderH();setExChip();
 })();
 </script>
