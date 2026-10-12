@@ -96,6 +96,9 @@ input[type=number]{font:inherit;color:var(--ink);background:var(--bg);border:1px
 .chip{display:inline-flex;align-items:center;gap:6px;font-size:.8rem;font-weight:600;padding:4px 10px;border-radius:99px;background:var(--raise);border:1px solid var(--line);color:var(--ink)}
 .hudex{font-family:var(--body);font-weight:600;font-size:.8rem;background:#000a;border:1px solid #ffffff33;border-radius:99px;padding:2px 8px;align-self:flex-end}
 .hudex:empty{display:none}
+.coach{position:absolute;left:12px;right:12px;top:108px;margin:0 auto;max-width:330px;background:#0b2b1fdd;border:1px solid #4cc28599;color:#fff;border-radius:12px;padding:8px 12px;font-size:.95rem;font-weight:600;text-align:center;pointer-events:none}
+.coach small{display:block;font-weight:500;font-size:.75rem;color:#ffffffb3;text-transform:uppercase;letter-spacing:.08em}
+.tech{margin:0;font-size:.88rem;color:var(--muted)}
 .week{display:flex;gap:6px;flex-wrap:wrap}
 .toast{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--raise);border:1px solid var(--line);color:var(--ink);padding:10px 14px;border-radius:12px;font-size:.9rem;max-width:calc(100% - 32px);z-index:5}
 table{width:100%;border-collapse:collapse;font-size:.86rem}
@@ -144,6 +147,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
       <select id="restSecs"><option value="0">Sin temporizador</option><option value="60">1:00</option><option value="90">1:30</option><option value="120" selected>2:00</option><option value="180">3:00</option><option value="240">4:00</option></select></label>
     <div class="checks">
       <label for="autoEx"><input type="checkbox" id="autoEx" checked> Detectar el ejercicio automáticamente</label>
+      <label for="coach"><input type="checkbox" id="coach" checked> Consejos de técnica (máx. 2 por serie)</label>
       <label for="voice"><input type="checkbox" id="voice" checked> Avisos por voz</label>
       <label for="count"><input type="checkbox" id="count"> Contar reps en voz alta</label>
       <label for="tick"><input type="checkbox" id="tick"> Pitido suave en cada rep</label>
@@ -173,6 +177,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
         </div>
       </div>
       <div class="rest" id="hudRest" hidden></div>
+      <div class="coach" id="hudCoach" hidden></div>
       <div class="banner" id="banner" hidden></div>
       <div class="camhint" id="camHint">Apoyá el celular de costado, quieto y a la altura de la barra. Después tocá "Activar cámara".</div>
     </div>
@@ -231,6 +236,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
         <div id="sumRomBox"><span class="label">Recorrido parejo</span><span class="num" id="sumRom">–</span></div>
       </div>
       <p class="tip" id="sumTip"></p>
+      <p class="tech" id="sumTech" hidden></p>
       <div class="restbar" id="restBar" hidden><span><span class="label">Descanso</span><br><span class="num" id="restLeft">2:00</span></span>
         <div class="row"><button class="btn small" id="restPlus" type="button">+30 s</button><button class="btn small" id="restSkip" type="button">Saltar</button></div></div>
     </div>
@@ -244,6 +250,7 @@ button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid 
     <p class="note">Cada rep se compara con la más rápida de las primeras tres. Cerca del fallo la barra va cada vez más lenta; la app combina cuánto perdiste hasta ahora con la tendencia de las últimas reps para proyectar en qué rep la velocidad cae al nivel de fallo. Ese nivel depende del ejercicio (en press banca se pierde más velocidad antes de fallar que en sentadilla).</p>
     <p class="note">Para afinarlo a vos: hacé una serie hasta el fallo real y tocá "Esta serie fue al fallo". La app guarda tu pérdida de velocidad en la última rep y la usa para ese ejercicio.</p>
     <p class="note">Detección del ejercicio: la app reconoce las articulaciones de tu cuerpo (hombros, codos, cadera, rodillas) y mira cuáles se mueven en cada rep y en qué posición está tu torso. Con eso distingue, por ejemplo, una sentadilla (rodillas y cadera, barra a la altura de los hombros) de un peso muerto (cadera, brazos colgando). Necesita verte el cuerpo entero de costado; si no estás seguro, elegí el ejercicio a mano y la app no lo cambia en esa serie.</p>
+    <p class="note">Consejos de técnica: con el mismo esqueleto, la app revisa cada rep (profundidad, extensión completa, inclinación del torso, balanceo, velocidad de la bajada). Solo te habla si el mismo error aparece en 2 reps, nunca más de 2 veces por serie y nunca encima de un aviso de fallo. Es una ayuda orientativa desde una sola cámara de costado: no reemplaza a un entrenador.</p>
     <p class="note">Si el celular está en silencio puede que no escuches la voz ni los pitidos.</p>
   </details>
 </div>
@@ -275,7 +282,7 @@ $('exercise').value=store.get('cdf-ex','sentadilla');
 // Ajustes que se recuerdan entre sesiones; dirección y último peso, por ejercicio
 const prefs=store.get('cdf-prefs',{});
 ['alertAt','restSecs'].forEach(id=>{if(prefs[id]!==undefined)$(id).value=prefs[id];$(id).addEventListener('change',()=>{prefs[id]=$(id).value;store.set('cdf-prefs',prefs)})});
-['voice','count','tick','autoEx'].forEach(id=>{if(prefs[id]!==undefined)$(id).checked=prefs[id];$(id).addEventListener('change',()=>{prefs[id]=$(id).checked;store.set('cdf-prefs',prefs)})});
+['voice','count','tick','autoEx','coach'].forEach(id=>{if(prefs[id]!==undefined)$(id).checked=prefs[id];$(id).addEventListener('change',()=>{prefs[id]=$(id).checked;store.set('cdf-prefs',prefs)})});
 let dirs=store.get('cdf-dir',{dominadas:true}),weights=store.get('cdf-w',{});
 function loadExercisePrefs(){setDir(dirs[ex()]!==false,true);$('weight').value=weights[ex()]??'';}
 $('weight').addEventListener('change',()=>{weights[ex()]=$('weight').value;store.set('cdf-w',weights)});
@@ -284,7 +291,7 @@ function setDir(up,silent){dirUp=up;$('dirUp').setAttribute('aria-pressed',up);$
 $('dirUp').addEventListener('click',()=>setDir(true));$('dirDown').addEventListener('click',()=>setDir(false));
 
 /* ---------- Serie y modelo ---------- */
-let reps=[],announced=Infinity,lastRepAt=0,lastSet=null;
+let announcedThisRep=false,reps=[],announced=Infinity,lastRepAt=0,lastSet=null;
 // Lo que se muestra: dentro de una serie la fatiga no se revierte, así que
 // "faltan" solo baja (sube únicamente si 2 reps seguidas lo justifican) y la proximidad nunca retrocede.
 let shown={rir:null,prox:0,upVotes:0};
@@ -398,7 +405,7 @@ let bannerTimer=null;
 function showBanner(text,col,ms){const b=$('banner');b.textContent=text;b.style.setProperty('--bcol',`var(${col})`);b.hidden=false;clearTimeout(bannerTimer);if(ms)bannerTimer=setTimeout(()=>b.hidden=true,ms);}
 
 function onRep(speed,dur,disp){
-  reps.push({speed,dur,disp});lastRepAt=performance.now();
+  reps.push({speed,dur,disp});lastRepAt=performance.now();announcedThisRep=false;
   if(reps.length===1)setPoseT=poseBuf.length?poseBuf[poseBuf.length-1].t:null;
   maybeClassify();
   const a=analyze();updateShown(a,false);a.rir=shown.rir;render();
@@ -407,7 +414,7 @@ function onRep(speed,dur,disp){
   // Una sola alerta por nivel, y nunca antes de tener referencia
   const guard=a.n>=4||(a.n>=3&&a.prox>=.9);
   if(a.rir!==null&&guard&&a.rir<=alertAt&&a.rir<announced){
-    announced=a.rir;
+    announced=a.rir;announcedThisRep=true;$('hudCoach').hidden=true;
     if(a.rir===0){beep(880,350);setTimeout(()=>beep(880,350),420);vib([300,120,300]);say('Fallo. Cortá');showBanner('CORTÁ','--crit',0);}
     else if(a.rir===1){beep(760,220);setTimeout(()=>beep(760,220),300);vib([200,100,200]);say('Una más');showBanner('UNA MÁS','--crit',2500);}
     else{beep(640,250);vib(250);say(`Quedan ${a.rir}`);showBanner(`QUEDAN ${a.rir}`,'--warn',2500);}
@@ -426,12 +433,14 @@ function endSet(reason){
     const row={fecha:new Date().toLocaleString('es-AR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'}),ej:$('exercise').selectedOptions[0].text,grupo:EX_INFO[ex()].grupo,patron:EX_INFO[ex()].patron,auto:exAuto,ts:Date.now(),peso:$('weight').value||'',reps:a.n,vl:Math.round(a.vlLast*100),rir:rirText(rir)};
     h.push(row);store.set('cdf-hist',h.slice(-200));renderH();
     lastSet={ex:ex(),vlLast:a.vlLast};
+    row.tecnica=coachSummary(a.n);
     showSummary(a,rir,row);
     toast(`${reason||'Serie terminada'}: ${a.n} reps, te quedaban ~${rirText(rir)}.`);
     startRest();
   }else if(a.n){lastSet={ex:ex(),vlLast:a.vlLast};}
   reps=[];announced=Infinity;shown={rir:null,prox:0,upVotes:0};$('banner').hidden=true;setLive(null);render();
   setPoseT=null;lastGuess=null;guessVotes=0;manualLock=false;
+  coachReset();
   $('holdHint').textContent='Rep 1 · soltá al bloquear';
 }
 setInterval(()=>{if(reps.length&&performance.now()-lastRepAt>35000)endSet('Serie guardada');},2000);
@@ -452,6 +461,7 @@ function showSummary(a,rir,row){
   $('sumReps').textContent=a.n;$('sumRir').textContent=rir===null?'–':'~'+rirText(rir);
   $('sumVL').textContent='−'+Math.round(a.vlLast*100)+'%';$('sumRom').textContent=rom;$('sumRomBox').hidden=rom==='–';
   $('sumTip').textContent=tip;$('summary').hidden=false;
+  const tech=coachSummary(a.n);$('sumTech').textContent=tech;$('sumTech').hidden=!tech;
 }
 const fmtKg=v=>(Math.round(v/2.5)*2.5).toLocaleString('es-AR');
 
@@ -601,6 +611,89 @@ function maybeClassify(){
 }
 /* Clasificador por reglas a partir de los ángulos de las articulaciones (vista de costado).
    S: muestras {t, lm:[33 puntos {x,y,v} normalizados]}; aspect: ancho/alto del video. */
+/* ---------- Coach de técnica ----------
+   Cada rep se evalúa con el esqueleto (vista de costado). Un consejo sale solo si el mismo error
+   aparece en 2 de las últimas 3 reps, como máximo 2 por serie, separados por al menos 2 reps
+   y nunca en la misma rep que un aviso de fallo. */
+const COACH={
+  sentadilla:[
+    {k:'depth',txt:'Bajá un poco más',sub:'Profundidad',test:f=>f.kneeMin>105},
+    {k:'chest',txt:'Pecho arriba, torso más vertical',sub:'Inclinación',test:f=>f.leanMax>58}],
+  prensa:[{k:'depth',txt:'Bajá más el carro',sub:'Recorrido',test:f=>f.kneeMin>112}],
+  pesomuerto:[
+    {k:'lock',txt:'Terminá arriba extendiendo la cadera',sub:'Bloqueo',test:f=>f.hipMax<158}],
+  hipthrust:[{k:'lock',txt:'Apretá glúteos y extendé la cadera arriba',sub:'Bloqueo',test:f=>f.hipMax<158}],
+  banca:[
+    {k:'rom',txt:'Bajá la barra hasta el pecho',sub:'Recorrido',test:f=>f.elbowMin>100},
+    {k:'lock',txt:'Extendé los brazos completo arriba',sub:'Bloqueo',test:f=>f.elbowMax<148}],
+  militar:[
+    {k:'arch',txt:'Apretá glúteos y abdomen, no arquees la espalda',sub:'Postura',test:f=>f.leanBack>14},
+    {k:'lock',txt:'Extendé completo arriba',sub:'Bloqueo',test:f=>f.elbowMax<152}],
+  remo:[
+    {k:'swing',txt:'Torso quieto, sin impulso',sub:'Estabilidad',test:f=>f.torsoR>18},
+    {k:'rom',txt:'Llevá los codos más atrás',sub:'Recorrido',test:f=>f.elbowR<45}],
+  curl:[
+    {k:'swing',txt:'Sin balanceo, el cuerpo quieto',sub:'Estabilidad',test:f=>f.torsoR>12},
+    {k:'elbow',txt:'Codos pegados al cuerpo',sub:'Codos',test:f=>f.armR>30}],
+  dominadas:[
+    {k:'top',txt:'Subí hasta pasar el mentón',sub:'Recorrido',test:f=>f.chinGap>.15},
+    {k:'bottom',txt:'Extendé los brazos abajo',sub:'Recorrido',test:f=>f.elbowMax<148}],
+  otro:[]};
+const ECC={k:'ecc',txt:'Controlá la bajada, más lento',sub:'Tempo',test:(f,w)=>w.ecc!==null&&w.ecc<.5};
+let coach={hist:{},given:[],lastCueRep:-9,counts:{},evaluated:0};
+function coachReset(){coach={hist:{},given:[],lastCueRep:-9,counts:{},evaluated:0};$('hudCoach').hidden=true;}
+function repFeatures(S,aspect){
+  if(!S||S.length<5)return null;
+  const sv=ids=>S.reduce((a,s)=>a+ids.reduce((b,i)=>b+s.lm[i].v,0),0);
+  const L=sv([11,13,15,23,25,27]),Rv=sv([12,14,16,24,26,28]);
+  if(Math.max(L,Rv)/(S.length*6)<.5)return null;
+  const sd=L>=Rv?{sh:11,el:13,wr:15,hp:23,kn:25,an:27,he:29,to:31}:{sh:12,el:14,wr:16,hp:24,kn:26,an:28,he:30,to:32};
+  const P=(lm,i)=>({x:lm[i].x*aspect,y:lm[i].y});
+  const ang=(a,b,c)=>{const ux=a.x-b.x,uy=a.y-b.y,vx=c.x-b.x,vy=c.y-b.y,d=Math.hypot(ux,uy)*Math.hypot(vx,vy)||1e-9;return Math.acos(Math.max(-1,Math.min(1,(ux*vx+uy*vy)/d)))*57.2958};
+  const q=(a,p)=>{const v=a.slice().sort((x,y)=>x-y);return v[Math.round(p*(v.length-1))]};
+  const TL=q(S.map(s=>{const a=P(s.lm,sd.sh),b=P(s.lm,sd.hp);return Math.hypot(a.x-b.x,a.y-b.y)}),.5)||1e-6;
+  // hacia dónde mira la persona: el pie apunta hacia adelante (talón → punta); si no se ve el pie, la nariz respecto del hombro
+  const footVis=S.reduce((a,s)=>a+(s.lm[sd.he].v+s.lm[sd.to].v)/2,0)/S.length;
+  const face=Math.sign(footVis>.5?q(S.map(s=>s.lm[sd.to].x-s.lm[sd.he].x),.5):q(S.map(s=>s.lm[0].x-s.lm[sd.sh].x),.5))||1;
+  const F=S.map(s=>{const lm=s.lm,sh=P(lm,sd.sh),el=P(lm,sd.el),wr=P(lm,sd.wr),hp=P(lm,sd.hp),kn=P(lm,sd.kn),an=P(lm,sd.an),no=P(lm,0);
+    const lean=Math.atan2((sh.x-hp.x)*face,hp.y-sh.y)*57.2958; // + hacia adelante, − hacia atrás
+    return{knee:ang(hp,kn,an),hip:ang(sh,hp,kn),elbow:ang(sh,el,wr),lean,
+      arm:Math.atan2(Math.abs(el.x-sh.x),el.y-sh.y)*57.2958,bar:Math.abs(wr.x-an.x)/TL,chin:(no.y-wr.y)/TL}});
+  const c=k=>F.map(f=>f[k]),lo=k=>q(c(k),.1),hi=k=>q(c(k),.9);
+  return{kneeMin:lo('knee'),hipMax:hi('hip'),elbowMin:lo('elbow'),elbowMax:hi('elbow'),elbowR:hi('elbow')-lo('elbow'),
+    leanMax:hi('lean'),leanBack:-lo('lean'),torsoR:hi('lean')-lo('lean'),armR:hi('arm')-lo('arm'),
+    barFar:hi('bar'),chinGap:lo('chin')};
+}
+function coachEval(f,w,exKey){
+  const out=[];if(!f&&w.ecc===null)return out;
+  if(f)(COACH[exKey]||[]).forEach(r=>{if(r.test(f,w))out.push(r)});
+  if(exKey!=='pesomuerto'&&ECC.test(f,w))out.push(ECC);
+  return out;
+}
+function coachRep(w){
+  if(mode!=='cam'||!$('coach').checked||!video.videoHeight)return;
+  const S=poseBuf.filter(s=>s.t>=w.t0&&s.t<=w.t1);
+  const f=$('autoEx').checked?repFeatures(S,video.videoWidth/video.videoHeight):null;
+  const faults=coachEval(f,w,ex());coach.evaluated++;
+  const keys=new Set(faults.map(r=>r.k));
+  [...(COACH[ex()]||[]),ECC].forEach(r=>{const h=coach.hist[r.k]||(coach.hist[r.k]=[]);h.push(keys.has(r.k));if(h.length>3)h.shift();if(keys.has(r.k))coach.counts[r.k]=(coach.counts[r.k]||0)+1;});
+  const n=reps.length;
+  if(coach.given.length>=2||n<2||n-coach.lastCueRep<2||announcedThisRep)return;
+  const cue=faults.find(r=>!coach.given.some(g=>g.k===r.k)&&coach.hist[r.k].filter(Boolean).length>=2);
+  if(!cue)return;
+  coach.given.push({k:cue.k,txt:cue.txt,sub:cue.sub,rep:n});coach.lastCueRep=n;
+  const el=$('hudCoach');el.innerHTML='';const sm=document.createElement('small');sm.textContent='Coach · '+cue.sub;el.appendChild(sm);el.appendChild(document.createTextNode(cue.txt));el.hidden=false;
+  clearTimeout(coach.timer);coach.timer=setTimeout(()=>el.hidden=true,4500);
+  beep(990,60,.12);setTimeout(()=>beep(1320,60,.12),90);
+  if($('voice').checked)say(cue.txt);
+}
+function coachSummary(n){
+  if(!coach.evaluated)return'';
+  const all=[...(COACH[ex()]||[]),ECC],parts=[];
+  all.forEach(r=>{const c=coach.counts[r.k]||0;if(c>=2)parts.push(`${r.sub.toLowerCase()}: ${r.txt.charAt(0).toLowerCase()+r.txt.slice(1)} (${c}/${coach.evaluated} reps)`)});
+  return parts.length?'Técnica · '+parts.join(' · '):'Técnica · sin errores repetidos en esta serie.';
+}
+
 function classifyPose(S,aspect){
   if(!S||S.length<12)return null;
   const sideVis=ids=>S.reduce((a,s)=>a+ids.reduce((b,i)=>b+s.lm[i].v,0),0);
@@ -736,7 +829,7 @@ function drawTrace(now){
 const diag={frames:[],events:[]};
 function logEv(t,kind,why,d){diag.events.push({t:+t.toFixed(3),kind,why,d:+(d||0).toFixed(1)});if(diag.events.length>400)diag.events.shift();}
 let buf=[],sm=null,dir=0,ext=null,lastExt=null,dispHist=[],phaseUp=false;
-function resetDetector(){pending=[];buf=[];sm=null;dir=0;ext=null;lastExt=null;dispHist=[];phaseUp=false;$('hudLive').style.width='0';$('hudLiveTxt').textContent='–';}
+function resetDetector(){prevTopT=null;pending=[];buf=[];sm=null;dir=0;ext=null;lastExt=null;dispHist=[];phaseUp=false;$('hudLive').style.width='0';$('hudLiveTxt').textContent='–';}
 const median=a=>{if(!a.length)return 0;const s=a.slice().sort((x,y)=>x-y);return s[s.length>>1]};
 function detect(t,yPix,h){
   sm=sm===null?yPix:sm+.5*(yPix-sm);
@@ -763,7 +856,7 @@ function detect(t,yPix,h){
     }
   }
 }
-let pending=[];
+let pending=[],prevTopT=null;
 function registerExt(type,p){
   if(type==='top'&&lastExt&&lastExt.type==='bottom'){
     const b=lastExt,d=p.e-b.e,med=median(dispHist),hh=work.height||1;
@@ -781,7 +874,8 @@ function registerExt(type,p){
       else{
         const c={speed:.8*d/dur,dur,d,t:p.t};
         const fits=!med||(d>=.65*med&&d<=1.5*med);
-        if(fits){pending=[];dispHist.push(d);if(dispHist.length>6)dispHist.shift();logEv(p.t,'rep','',d);onRep(c.speed,c.dur,c.d);}
+        if(fits){pending=[];dispHist.push(d);if(dispHist.length>6)dispHist.shift();logEv(p.t,'rep','',d);onRep(c.speed,c.dur,c.d);
+          coachRep({t0:prevTopT!==null&&b.t-prevTopT<6?prevTopT:b.t-1.5,t1:p.t+.25,ecc:prevTopT!==null&&b.t-prevTopT<6?b.t-prevTopT:null});}
         else{
           pending.push(c);if(pending.length>3)pending.shift();
           const [x,y]=pending.slice(-2);
@@ -797,6 +891,7 @@ function registerExt(type,p){
       }
     }
   }
+  if(type==='top')prevTopT=p.t;
   lastExt={type,...p};
 }
 
@@ -824,7 +919,7 @@ $('diagBtn').addEventListener('click',()=>{
 $('exportCsv').addEventListener('click',()=>{
   const h=store.get('cdf-hist',[]);if(!h.length){toast('Todavía no hay series para exportar.');return;}
   const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
-  const csv=['fecha,ejercicio,grupo,patron,peso_kg,reps,perdida_velocidad_pct,reps_en_reserva'].concat(h.map(r=>[r.fecha,r.ej,r.grupo||'',r.patron||'',r.peso||'',r.reps,r.vl,r.rir].map(q).join(','))).join('\n');
+  const csv=['fecha,ejercicio,grupo,patron,peso_kg,reps,perdida_velocidad_pct,reps_en_reserva,tecnica'].concat(h.map(r=>[r.fecha,r.ej,r.grupo||'',r.patron||'',r.peso||'',r.reps,r.vl,r.rir,(r.tecnica||'').replace(/^Técnica · /,'')].map(q).join(','))).join('\n');
   const a=document.createElement('a');a.href=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv'}));a.download='cerca-del-fallo.csv';document.body.appendChild(a);a.click();
   setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1000);
 });
